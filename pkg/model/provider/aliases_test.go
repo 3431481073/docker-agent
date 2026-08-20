@@ -40,6 +40,7 @@ func TestCatalogAliases(t *testing.T) {
 	expected := map[string]Alias{
 		"openrouter":   {APIType: "openai", BaseURL: "https://openrouter.ai/api/v1", TokenEnvVar: "OPENROUTER_API_KEY"},
 		"api-route":    {APIType: "openai", BaseURL: "https://global.api-route.com/v1", TokenEnvVar: "API_ROUTE_API_KEY"},
+		"orcarouter":   {APIType: "openai", BaseURL: "https://api.orcarouter.ai/v1", TokenEnvVar: "ORCAROUTER_API_KEY"},
 		"atlascloud":   {APIType: "openai", BaseURL: "https://api.atlascloud.ai/v1", TokenEnvVar: "ATLASCLOUD_API_KEY"},
 		"runcrate":     {APIType: "openai", BaseURL: "https://api.runcrate.ai/v1", TokenEnvVar: "RUNCRATE_API_KEY"},
 		"opper":        {APIType: "openai", BaseURL: "https://api.opper.ai/v3/compat", TokenEnvVar: "OPPER_API_KEY"},
