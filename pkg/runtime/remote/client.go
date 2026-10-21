@@ -99,6 +99,7 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 			"session_summary":         func() agentruntime.Event { return &agentruntime.SessionSummaryEvent{} },
 			"session_compaction":      func() agentruntime.Event { return &agentruntime.SessionCompactionEvent{} },
 			"partial_tool_call":       func() agentruntime.Event { return &agentruntime.PartialToolCallEvent{} },
+			"tool_calls_retracted":    func() agentruntime.Event { return &agentruntime.ToolCallsRetractedEvent{} },
 			"max_iterations_reached":  func() agentruntime.Event { return &agentruntime.MaxIterationsReachedEvent{} },
 			"budget_usage":            func() agentruntime.Event { return &agentruntime.BudgetUsageEvent{} },
 			"budget_exceeded":         func() agentruntime.Event { return &agentruntime.BudgetExceededEvent{} },

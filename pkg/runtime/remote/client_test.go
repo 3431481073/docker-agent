@@ -401,3 +401,26 @@ func TestClient_RunAgentIncompleteStreamIsAnError(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_RunAgentToolCallsRetracted(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"tool_calls_retracted\",\"tool_call_ids\":[\"declined-tool\"]}\n\ndata: {\"type\":\"stream_stopped\"}\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	client := newTestClient(t, srv.URL)
+	stream, err := client.RunAgent(t.Context(), "s", "agent.yaml", nil, "")
+	require.NoError(t, err)
+	var events []agentruntime.Event
+	for event := range stream {
+		events = append(events, event)
+	}
+	require.Len(t, events, 2)
+	retracted, ok := events[0].(*agentruntime.ToolCallsRetractedEvent)
+	require.True(t, ok, "got %T", events[0])
+	assert.Equal(t, []string{"declined-tool"}, retracted.ToolCallIDs)
+	assert.IsType(t, &agentruntime.StreamStoppedEvent{}, events[1])
+}
