@@ -846,6 +846,9 @@ func (r *LocalRuntime) runTurn(
 	// the turn cannot be priced (no usage, or a model with no pricing
 	// table); see computeMessageCost.
 	msgCost := pricing.ComputeMessageCost(res.Usage, m)
+	if len(res.UsageAttempts) > 0 && usedModel != nil {
+		msgCost = attemptsCost(ctx, res.UsageAttempts, usedModel.BaseConfig(), r.modelsStore)
+	}
 	if res.Usage != nil {
 		modelName := "unknown"
 		if m != nil {
