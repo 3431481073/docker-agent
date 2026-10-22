@@ -41,6 +41,9 @@ type betaStreamAdapter struct {
 	fallbackModels []string
 	markerSeen     bool
 	served         atomic.Pointer[string]
+	// declinedCategories holds each fallback marker's refusal category, in
+	// order: one per declined attempt.
+	declinedCategories []string
 }
 
 // newBetaStreamAdapter creates a new Beta stream adapter
@@ -103,6 +106,7 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			a.toolCall = false
 			a.markerSeen = true
 			a.served.Store(&block.To.Model)
+			a.declinedCategories = append(a.declinedCategories, string(block.Trigger.Category))
 			response.Choices[0].Delta.ServerFallback = &chat.ServerFallback{From: block.From.Model, To: block.To.Model}
 		case anthropic.BetaThinkingBlock:
 			if block.Thinking != "" {
@@ -149,6 +153,7 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		a.settled.Store(true)
 		if a.trackUsage {
 			response.Usage = betaUsageFromMessage(a.message.Usage)
+			response.UsageAttempts = serverFallbackAttempts(a.message.Usage.Iterations, a.declinedCategories)
 		}
 	case anthropic.BetaRawMessageStopEvent:
 		for _, dropped := range thinkingTransformations(a.message.InputTransformations) {
@@ -215,4 +220,47 @@ func betaUsageFromMessage(u anthropic.BetaUsage) *chat.Usage {
 		CacheWriteTokens:  u.CacheCreationInputTokens,
 		ReasoningTokens:   u.OutputTokensDetails.ThinkingTokens,
 	}
+}
+
+// billedBeforeOutput lists the refusal categories billed even when the model
+// declined before any output, as of September 2026; Anthropic may change it.
+// https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#how-refusals-are-billed
+var billedBeforeOutput = map[string]bool{"bio": true, "frontier_llm": true, "reasoning_extraction": true}
+
+// serverFallbackAttempts lists the attempts of a response a server fallback
+// spread across models, from usage.iterations: each declined hop ("message")
+// and the attempt that served it ("fallback_message"). A declined hop with no
+// output is billed only in a billed category; when the markers don't line up
+// with the declined hops, every hop counts as billed. Nil without a fallback.
+func serverFallbackAttempts(iterations []anthropic.BetaIterationsUsageItemUnion, categories []string) []chat.UsageAttempt {
+	if !slices.ContainsFunc(iterations, func(it anthropic.BetaIterationsUsageItemUnion) bool { return it.Type == "fallback_message" }) {
+		return nil
+	}
+	declined := 0
+	for _, it := range iterations {
+		if it.Type == "message" {
+			declined++
+		}
+	}
+	knownCategories := declined == len(categories)
+	var attempts []chat.UsageAttempt
+	hop := 0
+	for _, it := range iterations {
+		if it.Type != "message" && it.Type != "fallback_message" {
+			continue
+		}
+		billed := true
+		if it.Type == "message" {
+			if knownCategories && it.OutputTokens == 0 && !billedBeforeOutput[categories[hop]] {
+				billed = false
+			}
+			hop++
+		}
+		attempts = append(attempts, chat.UsageAttempt{
+			Model: it.Model, Billed: billed,
+			InputTokens: it.InputTokens, OutputTokens: it.OutputTokens,
+			CachedInputTokens: it.CacheReadInputTokens, CacheWriteTokens: it.CacheCreationInputTokens,
+		})
+	}
+	return attempts
 }
