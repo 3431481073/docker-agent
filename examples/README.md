@@ -212,6 +212,7 @@ remote MCP endpoints.
 | [`daoxe.yaml`](daoxe.yaml) | DaoXE multi-model gateway provider. |
 | [`opper.yaml`](opper.yaml) | Opper multi-model gateway provider. |
 | [`ovhcloud.yaml`](ovhcloud.yaml) | OVHcloud AI Endpoints provider. |
+| [`runcrate.yaml`](runcrate.yaml) | Runcrate open-model host (`runcrate`). |
 | [`groq.yaml`](groq.yaml) | Groq fast-inference provider. |
 | [`fireworks.yaml`](fireworks.yaml) | Fireworks AI open-model inference (`fireworks-ai`). |
 | [`deepseek.yaml`](deepseek.yaml) | DeepSeek chat and reasoning provider. |

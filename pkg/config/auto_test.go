@@ -96,6 +96,13 @@ func TestAvailableProviders_NoGateway(t *testing.T) {
 			expectedProvider: "opper",
 		},
 		{
+			name: "runcrate api key present",
+			envVars: map[string]string{
+				"RUNCRATE_API_KEY": "test-key",
+			},
+			expectedProvider: "runcrate",
+		},
+		{
 			name: "baseten api key present",
 			envVars: map[string]string{
 				"BASETEN_API_KEY": "test-key",
@@ -350,6 +357,15 @@ func TestAutoModelConfig(t *testing.T) {
 			},
 			expectedProvider:  "opper",
 			expectedModel:     "claude-sonnet-4-6",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name: "runcrate provider",
+			envVars: map[string]string{
+				"RUNCRATE_API_KEY": "test-key",
+			},
+			expectedProvider:  "runcrate",
+			expectedModel:     "deepseek-ai/DeepSeek-V4.1-Flash",
 			expectedMaxTokens: 32000,
 		},
 		{

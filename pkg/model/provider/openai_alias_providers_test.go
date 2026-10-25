@@ -73,6 +73,14 @@ var openAIAliasProviders = []openAIAliasProvider{
 		mergesSystemMessages: true,
 	},
 	{
+		provider:             "runcrate",
+		envVar:               "RUNCRATE_API_KEY",
+		testKey:              "test-runcrate-key",
+		model:                "deepseek-ai/DeepSeek-V4.1-Flash",
+		greeting:             "Hello from Runcrate",
+		mergesSystemMessages: true,
+	},
+	{
 		provider: "deepseek",
 		envVar:   "DEEPSEEK_API_KEY",
 		testKey:  "sk-test-deepseek-key",
