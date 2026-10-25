@@ -200,12 +200,14 @@ type Supervisor struct {
 	startMu sync.Mutex
 
 	// mu guards the rest of the fields.
-	mu           sync.Mutex
-	session      Session
-	stopping     bool
-	watcherAlive bool
-	forceRestart bool          // set by RestartAndWait so the watcher reconnects
-	restarted    chan struct{} // closed and replaced on each successful restart
+	mu            sync.Mutex
+	session       Session
+	stopping      bool
+	stopDone      chan struct{} // closed after session close and watcher exit
+	connectReaped chan struct{} // closed after a stopped startup handshake is reaped
+	watcherAlive  bool
+	forceRestart  bool          // set by RestartAndWait so the watcher reconnects
+	restarted     chan struct{} // closed and replaced on each successful restart
 	// done is closed when the supervisor enters a terminal state (Stopped
 	// or Failed) so RestartAndWait can wake up promptly. Replaced with a
 	// fresh channel by Start when transitioning out of a terminal state.
@@ -292,6 +294,7 @@ func (s *Supervisor) Restarted() <-chan struct{} {
 //
 // When policy.StartupTimeout is non-zero the connect is bounded by it; on
 // expiry Start returns ErrInitTimeout and stays in StateStopped.
+// After Stop, Start waits for teardown before reconnecting.
 func (s *Supervisor) Start(ctx context.Context) error {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
@@ -302,8 +305,18 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		return nil
 	}
 	if s.stopping {
+		stopDone, connectReaped := s.stopDone, s.connectReaped
 		s.mu.Unlock()
-		return ErrNotStarted
+		// Do not reuse the connector until the old watcher and any late
+		// handshake have finished closing their shared transport.
+		if err := waitForWatcher(ctx, stopDone); err != nil {
+			return err
+		}
+		if err := waitForWatcher(ctx, connectReaped); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.stopping = false
 	}
 	// A crash loop detected by watch reports itself here exactly once
 	// (see crashLoopErr's doc): the very next Start after this one attempts
@@ -474,16 +487,23 @@ func (s *Supervisor) reapPendingConnect(ctx context.Context, p *pendingConnect) 
 func (s *Supervisor) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopping {
-		watchDone := s.watchDone
+		stopDone := s.stopDone
 		s.mu.Unlock()
-		return waitForWatcher(ctx, watchDone)
+		return waitForWatcher(ctx, stopDone)
 	}
 	s.stopping = true
+	stopDone := make(chan struct{})
+	s.stopDone = stopDone
 	sess := s.session
 	s.session = nil
 	watchDone := s.watchDone
 	pending := s.inflightConnect
 	s.inflightConnect = nil
+	var connectReaped chan struct{}
+	if pending != nil {
+		connectReaped = make(chan struct{})
+	}
+	s.connectReaped = connectReaped
 	// A deliberate Stop discards any pending crash-loop verdict and its
 	// history: a future Start begins a fresh window rather than resuming
 	// one that spans an intentional stop/start cycle.
@@ -498,7 +518,10 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	// session is closed rather than leaked. Runs in the background: a wedged
 	// handshake must not block Stop.
 	if pending != nil {
-		go s.reapPendingConnect(context.WithoutCancel(ctx), pending)
+		go func() {
+			defer close(connectReaped)
+			s.reapPendingConnect(context.WithoutCancel(ctx), pending)
+		}()
 	}
 
 	var closeErr error
@@ -506,6 +529,14 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 		closeErr = sess.Close(context.WithoutCancel(ctx))
 	}
 	waitErr := waitForWatcher(ctx, watchDone)
+	if waitErr == nil {
+		close(stopDone)
+	} else {
+		go func() {
+			_ = waitForWatcher(context.WithoutCancel(ctx), watchDone)
+			close(stopDone)
+		}()
+	}
 	if closeErr != nil && ctx.Err() == nil {
 		return closeErr
 	}

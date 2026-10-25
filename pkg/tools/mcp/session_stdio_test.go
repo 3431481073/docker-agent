@@ -88,6 +88,29 @@ func sessionTestToolset(t *testing.T, mode string) (*Toolset, string) {
 	return ts, marker
 }
 
+func TestSessionStdioStartAfterStop(t *testing.T) {
+	t.Parallel()
+	ts, _ := sessionTestToolset(t, "normal")
+	for range 3 {
+		require.NoError(t, ts.Start(t.Context()))
+		available, err := ts.Tools(t.Context())
+		require.NoError(t, err)
+		found := false
+		for _, tool := range available {
+			if tool.Name != "session_ping" {
+				continue
+			}
+			result, err := tool.Handler(t.Context(), tools.ToolCall{Function: tools.FunctionCall{Name: tool.Name, Arguments: "{}"}}, tools.NopRuntime{})
+			require.NoError(t, err)
+			assert.Equal(t, "pong", result.Output)
+			found = true
+		}
+		require.True(t, found)
+		require.NoError(t, ts.Stop(t.Context()))
+		require.False(t, ts.IsStarted())
+	}
+}
+
 func TestSessionStdioSetupCancellation(t *testing.T) {
 	t.Parallel()
 	ts, marker := sessionTestToolset(t, "hang-init")
