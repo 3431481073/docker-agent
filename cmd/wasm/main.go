@@ -52,7 +52,8 @@
 //
 // `onEvent` is called with one of:
 //
-//	{type: "delta", content?: string, reasoning?: string}
+//	{type: "delta", message_id, content?: string, reasoning?: string}
+//	{type: "reasoning_reset", message_id} // discard this message's reasoning
 //	{type: "tool_call_delta", id, name, arguments}
 //	{type: "tool_calls_retracted", ids}           // drop these deltas: they will never run
 //	{type: "tool_call", id, name, args}

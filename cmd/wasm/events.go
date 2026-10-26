@@ -45,12 +45,14 @@ func (p *eventProjector) project(ev embeddedchat.Event) []map[string]any {
 		if e.Content == "" {
 			return nil
 		}
-		return one(map[string]any{"type": "delta", "content": e.Content})
+		return one(map[string]any{"type": "delta", "content": e.Content, "message_id": e.MessageID})
 	case *runtime.AgentChoiceReasoningEvent:
 		if e.Content == "" {
 			return nil
 		}
-		return one(map[string]any{"type": "delta", "reasoning": e.Content})
+		return one(map[string]any{"type": "delta", "reasoning": e.Content, "message_id": e.MessageID})
+	case *runtime.AgentChoiceReasoningResetEvent:
+		return one(map[string]any{"type": "reasoning_reset", "message_id": e.MessageID})
 	case *runtime.PartialToolCallEvent:
 		return one(map[string]any{
 			"type":      "tool_call_delta",

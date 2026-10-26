@@ -296,6 +296,9 @@ mainLoop:
 				toolCalls = nil
 				clear(toolCallIndex)
 				clear(emittedPartial)
+				if fullReasoningContent.Len() > 0 {
+					events.Emit(AgentChoiceReasoningReset(a.Name(), sess.ID, messageID))
+				}
 				fullReasoningContent.Reset()
 				thinkingSignature = ""
 				serverHandoff = true

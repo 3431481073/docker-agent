@@ -92,6 +92,7 @@ type Model interface {
 	AppendToLastMessage(agentName, content string) tea.Cmd
 	AppendAssistantContent(sessionID, messageID, agentName, content string) tea.Cmd
 	AppendReasoningContent(sessionID, messageID, agentName, content string) tea.Cmd
+	ResetReasoningContent(sessionID, messageID, agentName string) tea.Cmd
 	ReconcileAssistantContent(sessionID, messageID, agentName, content string) tea.Cmd
 	AppendAssistantMediaContent(sessionID, messageID, agentName string, media []types.AssistantMedia) tea.Cmd
 	AdoptAssistantMediaIdentity(sessionID, messageID, agentName string, media []types.AssistantMedia)

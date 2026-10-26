@@ -20,9 +20,9 @@ func raw(event runtime.Event) embeddedchat.Event { return embeddedchat.Event{Run
 
 func TestProjectContentAndControlEvents(t *testing.T) {
 	var p eventProjector
-	assert.Equal(t, []map[string]any{{"type": "delta", "content": "hi"}}, p.project(raw(runtime.AgentChoice("root", "s", "hi"))))
+	assert.Equal(t, []map[string]any{{"type": "delta", "content": "hi", "message_id": ""}}, p.project(raw(runtime.AgentChoice("root", "s", "hi"))))
 	assert.Nil(t, p.project(raw(runtime.AgentChoice("root", "s", ""))))
-	assert.Equal(t, []map[string]any{{"type": "delta", "reasoning": "hmm"}}, p.project(raw(runtime.AgentChoiceReasoning("root", "s", "hmm"))))
+	assert.Equal(t, []map[string]any{{"type": "delta", "reasoning": "hmm", "message_id": ""}}, p.project(raw(runtime.AgentChoiceReasoning("root", "s", "hmm"))))
 	assert.Equal(t, []map[string]any{{"type": "error", "message": "boom"}}, p.project(embeddedchat.Event{Err: errors.New("boom")}))
 	assert.Equal(t, []map[string]any{{"type": "finish", "reason": "stop"}}, p.project(embeddedchat.Event{Done: true}))
 	assert.Equal(t, []map[string]any{{"type": "warning", "message": "careful"}}, p.project(raw(runtime.Warning("careful", "root"))))
@@ -79,4 +79,19 @@ func TestProjectFallbackUsageAndElicitation(t *testing.T) {
 	assert.Equal(t, "https://auth.example.com", projected[0]["url"])
 	assert.Equal(t, map[string]any{"type": "object", "properties": map[string]any{"token": map[string]any{"type": "string"}}}, projected[0]["schema"])
 	assert.Equal(t, map[string]any{"authorize_url": "https://auth.example.com"}, projected[0]["meta"])
+}
+
+func TestReasoningResetAndDeltaMessageIdentity(t *testing.T) {
+	t.Parallel()
+	p := &eventProjector{}
+	for _, test := range []struct {
+		event runtime.Event
+		want  map[string]any
+	}{
+		{runtime.AgentChoice("root", "s", "kept", "answer"), map[string]any{"type": "delta", "message_id": "answer", "content": "kept"}},
+		{runtime.AgentChoiceReasoning("root", "s", "declined", "answer"), map[string]any{"type": "delta", "message_id": "answer", "reasoning": "declined"}},
+		{runtime.AgentChoiceReasoningReset("root", "s", "answer"), map[string]any{"type": "reasoning_reset", "message_id": "answer"}},
+	} {
+		require.Equal(t, []map[string]any{test.want}, p.project(embeddedchat.Event{RuntimeEvent: test.event}))
+	}
 }

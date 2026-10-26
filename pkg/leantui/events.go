@@ -75,6 +75,8 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 		m.statusSession.FinishSetup(m.contentSession(""), e.Reason)
 		m.notifyStreamStopped(ctx, e.Reason)
 		m.handleStreamStopped(ctx)
+	case *runtime.AgentChoiceReasoningResetEvent:
+		m.screen.Transcript.ResetReasoningContent(m.contentIdentity.Resolve(m.contentSession(e.SessionID), e.MessageID))
 	case *runtime.AgentChoiceReasoningEvent:
 		m.screen.Transcript.AppendReasoningContent(m.contentIdentity.Resolve(m.contentSession(e.SessionID), e.MessageID), e.Content)
 	case *runtime.AgentChoiceEvent:

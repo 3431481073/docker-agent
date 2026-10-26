@@ -287,6 +287,27 @@ func AgentChoiceReasoning(agentName, sessionID, content string, messageID ...str
 	}
 }
 
+// AgentChoiceReasoningResetEvent discards reasoning already streamed for one message.
+// Text and tool calls are unaffected; later reasoning starts from an empty buffer.
+type AgentChoiceReasoningResetEvent struct {
+	AgentContext
+
+	Type      string `json:"type"`
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+}
+
+func (e *AgentChoiceReasoningResetEvent) GetSessionID() string { return e.SessionID }
+
+func AgentChoiceReasoningReset(agentName, sessionID, messageID string) Event {
+	return &AgentChoiceReasoningResetEvent{
+		AgentContext: newAgentContext(agentName),
+		Type:         "agent_choice_reasoning_reset",
+		SessionID:    sessionID,
+		MessageID:    messageID,
+	}
+}
+
 // ErrorCode constants classify errors so external consumers (boards,
 // dashboards) can react programmatically without parsing free-form messages.
 //

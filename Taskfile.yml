@@ -142,6 +142,7 @@ tasks:
     desc: Build WASM and test its JavaScript API under Node
     cmds:
       - GOOS=js GOARCH=wasm go build -o cmd/wasm/web/docker-agent.wasm ./cmd/wasm
+      - node --test cmd/wasm/web/events_test.js
       - node cmd/wasm/smoke_test.js
       - node --test cmd/wasm/node/bridge_test.js
 

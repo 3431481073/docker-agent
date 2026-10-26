@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -423,4 +424,33 @@ func TestClient_RunAgentToolCallsRetracted(t *testing.T) {
 	require.True(t, ok, "got %T", events[0])
 	assert.Equal(t, []string{"declined-tool"}, retracted.ToolCallIDs)
 	assert.IsType(t, &agentruntime.StreamStoppedEvent{}, events[1])
+}
+
+func TestAgentChoiceReasoningResetWireIdentity(t *testing.T) {
+	t.Parallel()
+	want := agentruntime.AgentChoiceReasoningReset("root", "session", "message")
+	data, err := json.Marshal(want)
+	require.NoError(t, err)
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(data, &wire))
+	delete(wire, "timestamp")
+	require.Equal(t, map[string]any{"type": "agent_choice_reasoning_reset", "agent_name": "root", "session_id": "session", "message_id": "message"}, wire)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\ndata: {\"type\":\"stream_stopped\"}\n\n", data)
+	}))
+	t.Cleanup(srv.Close)
+	stream, err := newTestClient(t, srv.URL).RunAgent(t.Context(), "session", "agent.yaml", nil, "")
+	require.NoError(t, err)
+	var events []agentruntime.Event
+	for e := range stream {
+		events = append(events, e)
+	}
+	require.Len(t, events, 2)
+	event := events[0]
+	reset, ok := event.(*agentruntime.AgentChoiceReasoningResetEvent)
+	require.True(t, ok)
+	require.Equal(t, "message", reset.MessageID)
+	require.Equal(t, "root", reset.AgentName)
+	require.Equal(t, "session", event.(agentruntime.SessionScoped).GetSessionID())
 }

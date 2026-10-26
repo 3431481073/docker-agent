@@ -106,6 +106,12 @@ func (p *PersistenceObserver) OnEvent(ctx context.Context, sess *session.Session
 		p.streaming.agentName = e.AgentName
 		p.persistStreamingContent(ctx, sess.ID)
 
+	case *AgentChoiceReasoningResetEvent:
+		if e.MessageID == p.streaming.logicalID && p.streaming.messageID != 0 {
+			p.streaming.reasoningContent.Reset()
+			p.persistStreamingContent(ctx, sess.ID)
+		}
+
 	case *UserMessageEvent:
 		p.streaming = streamingState{}
 		msg := session.UserMessage(e.Message, e.MultiContent...)
