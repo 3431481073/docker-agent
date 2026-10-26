@@ -916,23 +916,25 @@ func (m *appModel) handleThemeFileChanged(themeRef string) (tea.Model, tea.Cmd) 
 func (m *appModel) handleOpenSettingsDialog() (tea.Model, tea.Cmd) {
 	settings := userconfig.Get()
 	preferences := messages.Preferences{
-		Layout:                m.layoutSettings,
-		SendMode:              m.sendMode,
-		SplitDiffView:         settings.GetSplitDiffView(),
-		ExpandThinking:        settings.GetExpandThinking(),
-		HideToolResults:       settings.HideToolResults,
-		RenderImages:          settings.GetRenderImages(),
-		ShowBanner:            settings.GetShowBanner(),
-		YOLO:                  settings.YOLO,
-		RestoreTabs:           settings.GetRestoreTabs(),
-		Snapshot:              settings.SnapshotsEnabled(),
-		CacheStablePrompts:    settings.CacheStablePromptsEnabled(),
-		WarnOnCacheMiss:       settings.CacheMissWarningsEnabled(),
-		Lean:                  settings.Lean,
-		TabTitleMaxLength:     settings.GetTabTitleMaxLength(),
-		Sound:                 settings.GetSound(),
-		SoundThreshold:        settings.GetSoundThreshold(),
-		InterruptConfirmation: messages.ParseInterruptMode(settings.GetInterruptConfirmation()),
+		Layout:                        m.layoutSettings,
+		SendMode:                      m.sendMode,
+		SplitDiffView:                 settings.GetSplitDiffView(),
+		ExpandThinking:                settings.GetExpandThinking(),
+		HideToolResults:               settings.HideToolResults,
+		RenderImages:                  settings.GetRenderImages(),
+		ShowBanner:                    settings.GetShowBanner(),
+		YOLO:                          settings.YOLO,
+		RestoreTabs:                   settings.GetRestoreTabs(),
+		Snapshot:                      settings.SnapshotsEnabled(),
+		BackgroundCompaction:          settings.BackgroundCompaction,
+		BackgroundCompactionThreshold: settings.GetBackgroundCompactionThreshold(),
+		CacheStablePrompts:            settings.CacheStablePromptsEnabled(),
+		WarnOnCacheMiss:               settings.CacheMissWarningsEnabled(),
+		Lean:                          settings.Lean,
+		TabTitleMaxLength:             settings.GetTabTitleMaxLength(),
+		Sound:                         settings.GetSound(),
+		SoundThreshold:                settings.GetSoundThreshold(),
+		InterruptConfirmation:         messages.ParseInterruptMode(settings.GetInterruptConfirmation()),
 	}
 	return m, core.CmdHandler(dialog.OpenDialogMsg{
 		Model: dialog.NewSettingsDialog(preferences, !m.hideSidebar),
@@ -1047,6 +1049,11 @@ func savePreferences(p messages.Preferences) error {
 		s.RestoreTabs = boolPreference(p.RestoreTabs, false)
 		s.Snapshot = boolPreference(p.Snapshot, false)
 		s.CacheStablePrompts = boolPreference(p.CacheStablePrompts, false)
+		s.BackgroundCompaction = p.BackgroundCompaction
+		s.BackgroundCompactionThreshold = p.BackgroundCompactionThreshold
+		if s.BackgroundCompactionThreshold == userconfig.DefaultBackgroundCompactionThreshold {
+			s.BackgroundCompactionThreshold = 0
+		}
 		s.WarnOnCacheMiss = boolPreference(p.WarnOnCacheMiss, false)
 		s.HideToolResults = p.HideToolResults
 		s.RenderImages = boolPreference(p.RenderImages, true)
@@ -1113,9 +1120,11 @@ func saveSettingsToUserConfig(layout messages.LayoutSettings, mode messages.Send
 		ExpandThinking: settings.GetExpandThinking(), HideToolResults: settings.HideToolResults,
 		RenderImages: settings.GetRenderImages(), ShowBanner: settings.GetShowBanner(),
 		YOLO: settings.YOLO, RestoreTabs: settings.GetRestoreTabs(), Snapshot: settings.SnapshotsEnabled(),
-		CacheStablePrompts: settings.CacheStablePromptsEnabled(),
-		WarnOnCacheMiss:    settings.CacheMissWarningsEnabled(),
-		Lean:               settings.Lean, TabTitleMaxLength: settings.GetTabTitleMaxLength(),
+		BackgroundCompaction:          settings.BackgroundCompaction,
+		BackgroundCompactionThreshold: settings.GetBackgroundCompactionThreshold(),
+		CacheStablePrompts:            settings.CacheStablePromptsEnabled(),
+		WarnOnCacheMiss:               settings.CacheMissWarningsEnabled(),
+		Lean:                          settings.Lean, TabTitleMaxLength: settings.GetTabTitleMaxLength(),
 		Sound: settings.GetSound(), SoundThreshold: settings.GetSoundThreshold(),
 		InterruptConfirmation: messages.ParseInterruptMode(settings.GetInterruptConfirmation()),
 	})

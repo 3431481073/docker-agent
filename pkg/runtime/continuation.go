@@ -29,7 +29,7 @@ func (r *LocalRuntime) appendSteerAndEmit(sess *session.Session, sm QueuedMessag
 //
 // It also snapshots the message count before any messages are added and
 // returns it alongside the drained flag so the caller can pass it to
-// compactIfNeeded without a separate len(sess.GetAllMessages()) call.
+// compaction checks without a separate len(sess.GetAllMessages()) call.
 //
 // NOTE: the appended \n is persisted in the session message and included in
 // UserMessageEvent. This is a deliberate trade-off: because the runtime passes
@@ -91,7 +91,7 @@ func (r *LocalRuntime) drainSteeredQueueAtBoundary(ctx context.Context, sess *se
 
 // steerResult is the outcome of a drainAndEmitSteered call: whether any
 // messages were drained, the pre-drain message count (for
-// compactIfNeeded), and the user_steering_messages_submit hook verdict
+// compaction checks), and the user_steering_messages_submit hook verdict
 // (a terminating stop and/or a transient context message to thread into
 // the steered turn).
 type steerResult struct {

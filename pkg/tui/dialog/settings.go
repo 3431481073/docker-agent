@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/core/layout"
 	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/styles"
+	"github.com/docker/docker-agent/pkg/userconfig"
 )
 
 const (
@@ -63,6 +64,8 @@ const (
 	rowRestoreTabs
 	rowSnapshot
 	rowCacheStablePrompts
+	rowBackgroundCompaction
+	rowBackgroundCompactionThreshold
 	rowLean
 	rowTabTitleLength
 	rowInterruptConfirmation
@@ -144,6 +147,9 @@ func NewSettingsDialog(preferences messages.Preferences, showVisuals bool) Dialo
 	preferences.SendMode = messages.ParseSendMode(string(preferences.SendMode))
 	if preferences.TabTitleMaxLength <= 0 {
 		preferences.TabTitleMaxLength = 20
+	}
+	if preferences.BackgroundCompactionThreshold <= 0 || preferences.BackgroundCompactionThreshold > 99 {
+		preferences.BackgroundCompactionThreshold = userconfig.DefaultBackgroundCompactionThreshold
 	}
 	if preferences.SoundThreshold <= 0 {
 		preferences.SoundThreshold = 10
@@ -337,6 +343,10 @@ func (d *settingsDialog) changeValue(delta int) tea.Cmd {
 			d.current.RestoreTabs = !d.current.RestoreTabs
 		case rowSnapshot:
 			d.current.Snapshot = !d.current.Snapshot
+		case rowBackgroundCompaction:
+			d.current.BackgroundCompaction = !d.current.BackgroundCompaction
+		case rowBackgroundCompactionThreshold:
+			d.current.BackgroundCompactionThreshold = stepValue(d.current.BackgroundCompactionThreshold, delta, 1, 1, 99)
 		case rowCacheStablePrompts:
 			d.current.CacheStablePrompts = !d.current.CacheStablePrompts
 		case rowLean:
@@ -565,6 +575,8 @@ func (d *settingsDialog) renderBehaviorTab(content *settingsContent, width int) 
 	toggle(rowRestoreTabs, "Restore tabs on launch", d.current.RestoreTabs)
 	toggle(rowSnapshot, "Automatic snapshots", d.current.Snapshot)
 	toggle(rowCacheStablePrompts, "Cache-stable dynamic prompts", d.current.CacheStablePrompts)
+	toggle(rowBackgroundCompaction, "Background compaction", d.current.BackgroundCompaction)
+	add(rowBackgroundCompactionThreshold, d.renderStepperRow(rowBackgroundCompactionThreshold, "Background compaction threshold", d.current.BackgroundCompactionThreshold, "%", width, false))
 	toggle(rowLean, "Lean UI by default", d.current.Lean)
 	add(rowTabTitleLength, d.renderStepperRow(rowTabTitleLength, "Tab title max length", d.current.TabTitleMaxLength, "chars", width, false))
 	content.addGroup("Interrupts", width)

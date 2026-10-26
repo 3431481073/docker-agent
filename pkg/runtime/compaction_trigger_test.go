@@ -14,7 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-// TestCompactIfNeeded_IgnoresSubSessionTokens is a regression test for
+// TestCompactionController_IgnoresSubSessionTokens is a regression test for
 // issue #2871: in a multi-agent run, the tokens accumulated inside a
 // transfer_task sub-session were counted by the proactive compaction
 // trigger (GetAllMessages recurses into sub-sessions) even though they
@@ -23,7 +23,7 @@ import (
 // with everything fitting the keep budget that meant "compact
 // everything, keep nothing" — the agent's next prompt was just the
 // summary and it halted with a confused "no conversation history" reply.
-func TestCompactIfNeeded_IgnoresSubSessionTokens(t *testing.T) {
+func TestCompactionController_IgnoresSubSessionTokens(t *testing.T) {
 	t.Parallel()
 
 	prov := &mockProvider{id: "test/model", stream: &mockStream{}}
@@ -58,7 +58,7 @@ func TestCompactIfNeeded_IgnoresSubSessionTokens(t *testing.T) {
 	}))
 
 	events := make(chan Event, 16)
-	rt.compactIfNeeded(t.Context(), sess, root, 100_000, messageCountBefore, NewChannelSink(events))
+	newCompactionController(rt, sess, NewChannelSink(events), nil).AfterMessages(t.Context(), root, 100_000, messageCountBefore)
 	close(events)
 
 	for ev := range events {
@@ -68,10 +68,10 @@ func TestCompactIfNeeded_IgnoresSubSessionTokens(t *testing.T) {
 	}
 }
 
-// TestCompactIfNeeded_TriggersOnOwnMessages pins the complementary case:
+// TestCompactionController_TriggersOnOwnMessages pins the complementary case:
 // large tool results recorded directly on the session still trigger the
 // proactive compaction.
-func TestCompactIfNeeded_TriggersOnOwnMessages(t *testing.T) {
+func TestCompactionController_TriggersOnOwnMessages(t *testing.T) {
 	t.Parallel()
 
 	prov := &mockProvider{id: "test/model", stream: &mockStream{}}
@@ -97,7 +97,7 @@ func TestCompactIfNeeded_TriggersOnOwnMessages(t *testing.T) {
 	}))
 
 	events := make(chan Event, 16)
-	rt.compactIfNeeded(t.Context(), sess, root, 100_000, messageCountBefore, NewChannelSink(events))
+	newCompactionController(rt, sess, NewChannelSink(events), nil).AfterMessages(t.Context(), root, 100_000, messageCountBefore)
 	close(events)
 
 	sawCompaction := false
@@ -109,11 +109,11 @@ func TestCompactIfNeeded_TriggersOnOwnMessages(t *testing.T) {
 	assert.True(t, sawCompaction, "large own tool results must still trigger compaction")
 }
 
-// TestCompactIfNeeded_CustomThreshold verifies that the agent's configured
+// TestCompactionController_CustomThreshold verifies that the agent's configured
 // compaction_threshold replaces the 0.9 default in the proactive trigger:
 // the same session content that stays under the default threshold triggers
 // compaction once a lower threshold is configured.
-func TestCompactIfNeeded_CustomThreshold(t *testing.T) {
+func TestCompactionController_CustomThreshold(t *testing.T) {
 	t.Parallel()
 
 	// ~150k chars ≈ ~37.5k estimated tokens: 37.5% of the 100k window —
@@ -146,7 +146,7 @@ func TestCompactIfNeeded_CustomThreshold(t *testing.T) {
 
 		sess, before := buildSession()
 		events := make(chan Event, 16)
-		rt.compactIfNeeded(t.Context(), sess, root, 100_000, before, NewChannelSink(events))
+		newCompactionController(rt, sess, NewChannelSink(events), nil).AfterMessages(t.Context(), root, 100_000, before)
 		close(events)
 
 		for ev := range events {
@@ -184,7 +184,7 @@ func TestCompactIfNeeded_CustomThreshold(t *testing.T) {
 		sess.InputTokens = 95_000 // over the 0.9 default, under 1.0
 
 		events := make(chan Event, 16)
-		rt.compactIfNeeded(t.Context(), sess, root, 100_000, before, NewChannelSink(events))
+		newCompactionController(rt, sess, NewChannelSink(events), nil).AfterMessages(t.Context(), root, 100_000, before)
 		close(events)
 
 		for ev := range events {
@@ -224,7 +224,7 @@ func TestCompactIfNeeded_AgentSessionCompactionDisabled(t *testing.T) {
 	}))
 
 	events := make(chan Event, 16)
-	rt.compactIfNeeded(t.Context(), sess, root, 100_000, messageCountBefore, NewChannelSink(events))
+	newCompactionController(rt, sess, NewChannelSink(events), nil).AfterMessages(t.Context(), root, 100_000, messageCountBefore)
 	close(events)
 
 	for ev := range events {
@@ -308,7 +308,7 @@ func TestCompactIfNeeded_UsageCalibratedTrigger(t *testing.T) {
 		sess.AddMessage(toolMsg(120_000))
 
 		events := make(chan Event, 16)
-		rt.compactIfNeeded(t.Context(), sess, root, contextLimit, messageCountBefore, NewChannelSink(events))
+		newCompactionController(rt, sess, NewChannelSink(events), nil).AfterMessages(t.Context(), root, contextLimit, messageCountBefore)
 		close(events)
 
 		for ev := range events {
