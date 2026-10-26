@@ -313,7 +313,7 @@ type LocalRuntime struct {
 	// construction; read-only afterwards. Always contains at least one
 	// entry: the auto-registered [PersistenceObserver] for the
 	// configured session store. See [EventObserver] for the contract.
-	observers []EventObserver
+	observers []func() EventObserver
 
 	// fallback owns the model-fallback chain (primary + configured
 	// fallbacks), per-attempt retry/backoff for transient errors, and
@@ -872,8 +872,9 @@ func NewLocalRuntime(ctx context.Context, agents *team.Team, opts ...Opt) (*Loca
 	// (possibly user-supplied) session store. It runs first in the
 	// observer chain so any user-supplied observers see the same view
 	// of the session that future RunStream calls and store reads will.
-	if obs := newPersistenceObserver(r.sessionStore); obs != nil {
-		r.observers = append([]EventObserver{obs}, r.observers...)
+	if r.sessionStore != nil {
+		factory := func() EventObserver { return newPersistenceObserver(r.sessionStore) }
+		r.observers = append([]func() EventObserver{factory}, r.observers...)
 	}
 
 	slog.DebugContext(ctx, "Creating new runtime", "agent", r.agents.Name(), "available_agents", agents.Size())
