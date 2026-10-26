@@ -608,62 +608,6 @@ func TestAgentReProbeRecoveryDoesNotEmitNotice(t *testing.T) {
 
 // TestAgentNoDuplicateStartWarnings verifies that repeated failures generate
 // only one warning (on the first failure), not one per retry.
-// slowToolSet blocks in Start until release is closed, recording completion.
-type slowToolSet struct {
-	stubToolSet
-
-	release chan struct{}
-	done    atomic.Bool
-}
-
-func (s *slowToolSet) Start(context.Context) error {
-	<-s.release
-	s.done.Store(true)
-	return nil
-}
-
-// peerDependentToolSet implements tools.PeerDependent and records whether
-// its peer had finished starting when its own Start ran.
-type peerDependentToolSet struct {
-	stubToolSet
-
-	peer        *slowToolSet
-	peerStarted atomic.Bool
-}
-
-var _ tools.PeerDependent = (*peerDependentToolSet)(nil)
-
-func (p *peerDependentToolSet) StartsAfterPeers() {}
-
-func (p *peerDependentToolSet) Start(context.Context) error {
-	p.peerStarted.Store(p.peer.done.Load())
-	return nil
-}
-
-// A peer-dependent toolset (e.g. the deferred aggregator) must only start
-// once every other toolset has settled, even though starts run concurrently
-// — its Start reads from its peers.
-func TestEnsureToolSetsAreStartedPeerDependentStartsLast(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		slow := &slowToolSet{release: make(chan struct{})}
-		dep := &peerDependentToolSet{peer: slow}
-		// The dependent is listed first on purpose: order in config must not matter.
-		a := New("root", "test", WithToolSets(dep, slow))
-
-		// In the bubble the sleep only fires once every other goroutine is
-		// blocked, so a buggy concurrent dep.Start deterministically runs
-		// (and records slow.done == false) before the release.
-		go func() {
-			time.Sleep(50 * time.Millisecond) //nolint:forbidigo // fake time inside the synctest bubble
-			close(slow.release)
-		}()
-
-		_, err := a.Tools(t.Context())
-		require.NoError(t, err)
-		assert.True(t, dep.peerStarted.Load(), "peer-dependent toolset started before its peers settled")
-	})
-}
-
 func TestAgentNoDuplicateStartWarnings(t *testing.T) {
 	t.Parallel()
 

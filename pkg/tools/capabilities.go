@@ -32,19 +32,6 @@ type StartReporter interface {
 	IsStarted() bool
 }
 
-// PeerDependent is implemented by toolsets whose Start reads from the
-// agent's other toolsets. Callers that start an agent's toolsets
-// concurrently must start these only after every other toolset has
-// settled, or their Start would race the very toolsets it depends on.
-//
-// Note the guarantee is best-effort: a peer whose start is already in
-// flight elsewhere is skipped, not awaited, so a PeerDependent Start must
-// still tolerate a peer that is not ready yet. Prefer resolving peer state
-// lazily, as the deferred toolset does.
-type PeerDependent interface {
-	StartsAfterPeers()
-}
-
 // Statable is implemented by toolsets that expose a lifecycle state
 // snapshot (Stopped/Starting/Ready/Degraded/Restarting/Failed) plus the
 // most recent error and restart count. The TUI uses this to render
