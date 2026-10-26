@@ -192,12 +192,8 @@ type Toolset struct {
 	cachedPrompts []PromptInfo
 	cacheGen      uint64
 
-	// toolsChangedHandler is called after the tool cache is refreshed
-	// following a ToolListChanged notification from the server, or after
-	// a successful supervisor reconnect. Single legacy slot; toolsChangedSubs
-	// holds the per-runtime subscriptions notified alongside it.
-	toolsChangedHandler func()
-	toolsChangedSubs    tools.ChangeSubscribers
+	// Subscribers are notified after a tool-list refresh or successful reconnect.
+	toolsChangedSubs tools.ChangeSubscribers
 }
 
 // invalidateCache clears the cached tools and prompts and bumps the
@@ -224,7 +220,6 @@ var (
 	_ tools.Sampleable          = (*Toolset)(nil)
 	_ tools.SampleableWithTools = (*Toolset)(nil)
 	_ tools.OAuthCapable        = (*Toolset)(nil)
-	_ tools.ChangeNotifier      = (*Toolset)(nil)
 	_ tools.ChangeSubscriber    = (*Toolset)(nil)
 )
 
@@ -769,13 +764,6 @@ func (ts *Toolset) refreshToolCache(ctx context.Context) {
 		return
 	}
 
-	ts.mu.Lock()
-	handler := ts.toolsChangedHandler
-	ts.mu.Unlock()
-
-	if handler != nil {
-		handler()
-	}
 	ts.toolsChangedSubs.Notify()
 }
 
@@ -1018,12 +1006,6 @@ func (ts *Toolset) SetManagedOAuth(managed bool) {
 
 func (ts *Toolset) SetUnmanagedOAuthRedirectURI(uri string) {
 	ts.mcpClient.SetUnmanagedOAuthRedirectURI(uri)
-}
-
-func (ts *Toolset) SetToolsChangedHandler(handler func()) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.toolsChangedHandler = handler
 }
 
 func (ts *Toolset) SubscribeToolsChanged(handler func()) func() {
