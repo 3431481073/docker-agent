@@ -55,6 +55,11 @@ func newPersistenceObserver(store session.Store) *PersistenceObserver {
 	return &PersistenceObserver{store: store}
 }
 
+// NewRunObserver isolates streaming transcript state for each invocation.
+func (p *PersistenceObserver) NewRunObserver() EventObserver {
+	return newPersistenceObserver(p.store)
+}
+
 // OnRunStart persists the session row before the run loop starts.
 // Sub-sessions skip this: the parent session's store absorbs them via
 // the SubSessionCompletedEvent handling in OnEvent.
