@@ -1,4 +1,4 @@
-package runtime
+package sampling
 
 import (
 	"encoding/json"
@@ -533,8 +533,8 @@ func TestBuildSamplingWithToolsContent(t *testing.T) {
 func TestSamplingWithToolsHandler_LimitRejection(t *testing.T) {
 	t.Parallel()
 
-	r := &LocalRuntime{}
-	_, err := r.samplingWithToolsHandler(t.Context(), &mcp.CreateMessageWithToolsParams{
+	r := Handler{}
+	_, err := r.HandleWithTools(t.Context(), &mcp.CreateMessageWithToolsParams{
 		Tools: make([]*mcp.Tool, maxSamplingTools+1),
 		Messages: []*mcp.SamplingMessageV2{
 			{Role: "user", Content: []mcp.Content{&mcp.TextContent{Text: "hi"}}},
