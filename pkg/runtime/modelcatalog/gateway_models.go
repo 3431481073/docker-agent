@@ -1,4 +1,4 @@
-package runtime
+package modelcatalog
 
 import (
 	"context"
@@ -34,10 +34,10 @@ type gatewayModelsCache struct {
 
 // listGatewayModels returns the model IDs served by the configured models
 // gateway, using the runtime's cache when fresh.
-func (r *LocalRuntime) listGatewayModels(ctx context.Context) ([]string, error) {
+func (r *Catalog) listGatewayModels(ctx context.Context) ([]string, error) {
 	now := time.Now
-	if r.now != nil {
-		now = r.now
+	if r.Now != nil {
+		now = r.Now
 	}
 
 	c := &r.gatewayModels
@@ -66,7 +66,7 @@ func (r *LocalRuntime) listGatewayModels(ctx context.Context) ([]string, error) 
 			return ids, err
 		}
 
-		ids, err := modelsgateway.ListModels(ctx, r.modelSwitcherCfg.ModelsGateway, r.modelSwitcherCfg.EnvProvider)
+		ids, err := modelsgateway.ListModels(ctx, r.Config.ModelsGateway, r.Config.EnvProvider)
 		if err != nil && ctx.Err() != nil {
 			return ids, err
 		}
@@ -90,7 +90,7 @@ func (r *LocalRuntime) listGatewayModels(ctx context.Context) ([]string, error) 
 // when false (gateway unreachable, /v1/models unsupported, or an empty
 // list that gives no usable signal) callers should fall back to the
 // models.dev catalog.
-func (r *LocalRuntime) buildGatewayChoices(ctx context.Context) ([]ModelChoice, bool) {
+func (r *Catalog) buildGatewayChoices(ctx context.Context) ([]ModelChoice, bool) {
 	ids, err := r.listGatewayModels(ctx)
 	if err != nil {
 		slog.DebugContext(ctx, "Gateway model discovery failed, falling back to catalog", "error", err)
@@ -101,8 +101,8 @@ func (r *LocalRuntime) buildGatewayChoices(ctx context.Context) ([]ModelChoice, 
 		return nil, false
 	}
 
-	existingRefs := make(map[string]bool, len(r.modelSwitcherCfg.Models)*2)
-	for name, cfg := range r.modelSwitcherCfg.Models {
+	existingRefs := make(map[string]bool, len(r.Config.Models)*2)
+	for name, cfg := range r.Config.Models {
 		existingRefs[name] = true
 		if cfg.Provider != "" && cfg.Model != "" {
 			existingRefs[cfg.Provider+"/"+cfg.Model] = true
@@ -114,10 +114,10 @@ func (r *LocalRuntime) buildGatewayChoices(ctx context.Context) ([]ModelChoice, 
 	// performed for its embedding/modality filters.
 	metas := make(map[string]*modelsdev.Model)
 	lookup := func(ctx context.Context, prov, model string) (modelsgateway.Metadata, bool) {
-		if r.modelsStore == nil {
+		if r.Store == nil {
 			return modelsgateway.Metadata{}, false
 		}
-		m, err := r.modelsStore.GetModel(ctx, modelsdev.NewID(prov, model))
+		m, err := r.Store.GetModel(ctx, modelsdev.NewID(prov, model))
 		if err != nil {
 			return modelsgateway.Metadata{}, false
 		}

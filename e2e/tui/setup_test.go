@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/session/sqlitestore"
 	"github.com/docker/docker-agent/pkg/teamloader"
@@ -73,7 +74,7 @@ func newTUIWithProxyOptions(t *testing.T, agentFile string, width, height int, p
 	rt, err := runtime.New(ctx, team,
 		runtime.WithSessionStore(store),
 		runtime.WithCurrentAgent(agent.Name()),
-		runtime.WithModelSwitcherConfig(&runtime.ModelSwitcherConfig{
+		runtime.WithModelSwitcherConfig(&modelcatalog.Config{
 			Models:             loadResult.Models,
 			Providers:          loadResult.Providers,
 			ModelsGateway:      runConfig.ModelsGateway,

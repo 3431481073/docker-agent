@@ -29,6 +29,7 @@ import (
 	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/permissions"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -1163,7 +1164,7 @@ func TestNewRuntime_ModelStorePrecedence(t *testing.T) {
 		cfgStore := &mockCatalogStore{}
 		rt, err := NewLocalRuntime(t.Context(), newTeam(),
 			WithModelStore(explicit),
-			WithModelSwitcherConfig(&ModelSwitcherConfig{ModelsStore: cfgStore}),
+			WithModelSwitcherConfig(&modelcatalog.Config{ModelsStore: cfgStore}),
 		)
 		require.NoError(t, err)
 		assert.Same(t, explicit, rt.modelsStore)
@@ -1173,7 +1174,7 @@ func TestNewRuntime_ModelStorePrecedence(t *testing.T) {
 		t.Parallel()
 		cfgStore := &mockCatalogStore{}
 		rt, err := NewLocalRuntime(t.Context(), newTeam(),
-			WithModelSwitcherConfig(&ModelSwitcherConfig{ModelsStore: cfgStore}),
+			WithModelSwitcherConfig(&modelcatalog.Config{ModelsStore: cfgStore}),
 		)
 		require.NoError(t, err)
 		assert.Same(t, cfgStore, rt.modelsStore)
@@ -1182,7 +1183,7 @@ func TestNewRuntime_ModelStorePrecedence(t *testing.T) {
 	t.Run("falls back to lazy store when neither is set", func(t *testing.T) {
 		t.Parallel()
 		rt, err := NewLocalRuntime(t.Context(), newTeam(),
-			WithModelSwitcherConfig(&ModelSwitcherConfig{}),
+			WithModelSwitcherConfig(&modelcatalog.Config{}),
 		)
 		require.NoError(t, err)
 		assert.IsType(t, &lazyModelStore{}, rt.modelsStore)

@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker-agent/pkg/httpsec"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools/mcp"
 	"github.com/docker/docker-agent/pkg/upstream"
@@ -948,7 +949,7 @@ func (s *Server) getSessionModels(c echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, runtime.SessionModelsResponse{
+	return c.JSON(http.StatusOK, modelcatalog.SessionModelsResponse{
 		Agent:           agentName,
 		CurrentModelRef: current,
 		Models:          choices,

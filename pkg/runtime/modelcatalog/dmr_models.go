@@ -1,4 +1,4 @@
-package runtime
+package modelcatalog
 
 import (
 	"context"
@@ -36,15 +36,15 @@ type dmrModelsCache struct {
 // the runtime's cache when fresh. It returns (nil, nil) when no lister is
 // configured (e.g. runtimes built directly in tests), so DMR discovery is
 // opt-in via NewLocalRuntime.
-func (r *LocalRuntime) listDMRModels(ctx context.Context) ([]dmrmodels.Model, error) {
-	if r.dmrModelLister == nil {
+func (r *Catalog) listDMRModels(ctx context.Context) ([]dmrmodels.Model, error) {
+	if r.ListDMR == nil {
 		slog.DebugContext(ctx, "DMR model discovery skipped; no lister configured")
 		return nil, nil
 	}
 
 	now := time.Now
-	if r.now != nil {
-		now = r.now
+	if r.Now != nil {
+		now = r.Now
 	}
 
 	c := &r.dmrModels
@@ -72,7 +72,7 @@ func (r *LocalRuntime) listDMRModels(ctx context.Context) ([]dmrmodels.Model, er
 			return ids, err
 		}
 
-		ids, err := r.dmrModelLister(ctx)
+		ids, err := r.ListDMR(ctx)
 		if err != nil && ctx.Err() != nil {
 			return ids, err
 		}
@@ -95,7 +95,7 @@ func (r *LocalRuntime) listDMRModels(ctx context.Context) ([]dmrmodels.Model, er
 // models. DMR models aren't part of the models.dev catalog, so without this
 // the picker shows nothing for a working local Model Runner. When DMR is not
 // installed or unreachable it returns nil.
-func (r *LocalRuntime) buildDMRChoices(ctx context.Context) []ModelChoice {
+func (r *Catalog) buildDMRChoices(ctx context.Context) []ModelChoice {
 	ids, err := r.listDMRModels(ctx)
 	if err != nil {
 		slog.DebugContext(ctx, "DMR model discovery failed, skipping DMR picker entries", "error", err)
@@ -105,8 +105,8 @@ func (r *LocalRuntime) buildDMRChoices(ctx context.Context) []ModelChoice {
 		return nil
 	}
 
-	existingRefs := make(map[string]bool, len(r.modelSwitcherCfg.Models)*2)
-	for name, cfg := range r.modelSwitcherCfg.Models {
+	existingRefs := make(map[string]bool, len(r.Config.Models)*2)
+	for name, cfg := range r.Config.Models {
 		existingRefs[name] = true
 		if cfg.Provider != "" && cfg.Model != "" {
 			existingRefs[cfg.Provider+"/"+cfg.Model] = true
@@ -125,8 +125,8 @@ func (r *LocalRuntime) buildDMRChoices(ctx context.Context) []ModelChoice {
 		// whose models.dev Family is "text-embedding" is filtered even when
 		// its ID doesn't contain "embed".
 		var meta *modelsdev.Model
-		if r.modelsStore != nil {
-			if m, err := r.modelsStore.GetModel(ctx, modelsdev.NewID("dmr", id)); err == nil {
+		if r.Store != nil {
+			if m, err := r.Store.GetModel(ctx, modelsdev.NewID("dmr", id)); err == nil {
 				meta = m
 			}
 		}
@@ -181,8 +181,8 @@ func applyDMRMetadata(choice *ModelChoice, metadata *dmrmodels.Metadata) {
 }
 
 // Configured models at explicit endpoints must not inherit another runner's metadata.
-func (r *LocalRuntime) populateDMRChoices(ctx context.Context, choices []ModelChoice) {
-	if r.modelSwitcherCfg.ModelsGateway != "" {
+func (r *Catalog) populateDMRChoices(ctx context.Context, choices []ModelChoice) {
+	if r.Config.ModelsGateway != "" {
 		return
 	}
 	models, err := r.listDMRModels(ctx)
@@ -195,7 +195,7 @@ func (r *LocalRuntime) populateDMRChoices(ctx context.Context, choices []ModelCh
 	}
 	for i := range choices {
 		choice := &choices[i]
-		cfg := r.modelSwitcherCfg.Models[choice.Ref]
+		cfg := r.Config.Models[choice.Ref]
 		if cfg.Provider != "dmr" || cfg.BaseURL != "" {
 			continue
 		}

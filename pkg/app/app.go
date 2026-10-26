@@ -27,6 +27,7 @@ import (
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/shellpath"
@@ -1792,7 +1793,7 @@ func (a *App) RefreshModelsCatalog(ctx context.Context) error {
 
 // AvailableModels returns the list of models available for selection.
 // Returns nil if model switching is not supported.
-func (a *App) AvailableModels(ctx context.Context) []runtime.ModelChoice {
+func (a *App) AvailableModels(ctx context.Context) []modelcatalog.ModelChoice {
 	start := time.Now()
 	if !a.runtime.SupportsModelSwitching() {
 		slog.DebugContext(ctx, "App available models skipped; model switching unsupported", "duration", time.Since(start))
@@ -1812,7 +1813,7 @@ func (a *App) AvailableModels(ctx context.Context) []runtime.ModelChoice {
 	baseModels := a.runtime.AvailableModels(ctx)
 	runtimeDuration := time.Since(runtimeStart)
 	decorateStart := time.Now()
-	models := runtime.DecorateModelChoices(baseModels, currentRef, customRefs)
+	models := modelcatalog.DecorateModelChoices(baseModels, currentRef, customRefs)
 	slog.DebugContext(ctx, "App available models completed",
 		"duration", time.Since(start),
 		"runtime_duration", runtimeDuration,

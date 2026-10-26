@@ -1,4 +1,4 @@
-package runtime
+package modelcatalog
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 
 // dmrRuntime builds a LocalRuntime whose DMR discovery is stubbed with the
 // given lister, no models gateway, and no configured models unless provided.
-func dmrRuntime(lister func(context.Context) ([]string, error), store ModelStore, models map[string]latest.ModelConfig) *LocalRuntime {
+func dmrRuntime(lister func(context.Context) ([]string, error), store Store, models map[string]latest.ModelConfig) *Catalog {
 	var details func(context.Context) ([]dmrmodels.Model, error)
 	if lister != nil {
 		details = func(ctx context.Context) ([]dmrmodels.Model, error) {
@@ -32,11 +32,11 @@ func dmrRuntime(lister func(context.Context) ([]string, error), store ModelStore
 			return models, err
 		}
 	}
-	return &LocalRuntime{
-		modelsStore:    store,
-		dmrModelLister: details,
-		now:            time.Now,
-		modelSwitcherCfg: &ModelSwitcherConfig{
+	return &Catalog{
+		Store:   store,
+		ListDMR: details,
+		Now:     time.Now,
+		Config: &Config{
 			EnvProvider: environment.NewNoEnvProvider(),
 			Models:      models,
 		},
@@ -116,7 +116,7 @@ func TestBuildDMRChoices(t *testing.T) {
 		// The vector model's ID contains no "embed" substring; only the
 		// models.dev Family marks it, exercising the metadata-before-filter
 		// ordering in buildDMRChoices.
-		store := stubModelStore{models: map[string]*modelsdev.Model{
+		store := stubStore{models: map[string]*modelsdev.Model{
 			"dmr/ai/nomic-text-v1.5": {Name: "Nomic Text", Family: "text-embedding"},
 		}}
 
@@ -142,7 +142,7 @@ func TestBuildDMRChoices(t *testing.T) {
 	t.Run("catalog metadata is applied when available", func(t *testing.T) {
 		t.Parallel()
 
-		store := stubModelStore{models: map[string]*modelsdev.Model{
+		store := stubStore{models: map[string]*modelsdev.Model{
 			"dmr/ai/qwen3:latest": {
 				Name:   "Qwen 3",
 				Family: "qwen",
@@ -230,7 +230,7 @@ func TestListDMRModels_CacheExpires(t *testing.T) {
 	}, nil, nil)
 
 	now := time.Now()
-	r.now = func() time.Time { return now }
+	r.Now = func() time.Time { return now }
 
 	_, err := r.listDMRModels(t.Context())
 	require.NoError(t, err)
@@ -249,27 +249,27 @@ func TestAvailableModelsIncludesDMR(t *testing.T) {
 	// only entries come from DMR discovery.
 	r := dmrRuntime(func(context.Context) ([]string, error) {
 		return []string{"ai/qwen3:latest"}, nil
-	}, stubModelStore{}, nil)
+	}, stubStore{}, nil)
 
-	got := refsOf(r.AvailableModels(t.Context()))
+	got := refsOf(r.AvailableModels(t.Context(), ""))
 	assert.Contains(t, got, "dmr/ai/qwen3:latest")
 }
 
 func TestDMRMetadataInPicker(t *testing.T) {
 	t.Parallel()
-	r := dmrRuntime(nil, stubModelStore{}, map[string]latest.ModelConfig{
+	r := dmrRuntime(nil, stubStore{}, map[string]latest.ModelConfig{
 		"local":  {Provider: "dmr", Model: "ai/qwen3", ProviderOpts: map[string]any{"context_size": 8192}},
 		"remote": {Provider: "dmr", Model: "ai/gemma3", BaseURL: "http://remote/engines/v1", ProviderOpts: map[string]any{"context_size": 4096}},
 	})
 	calls := 0
-	r.dmrModelLister = func(context.Context) ([]dmrmodels.Model, error) {
+	r.ListDMR = func(context.Context) ([]dmrmodels.Model, error) {
 		calls++
 		return []dmrmodels.Model{
 			{ID: "ai/qwen3:latest", Metadata: &dmrmodels.Metadata{Architecture: "qwen3", ContextWindow: 32768, Parameters: "8B", Quantization: "Q4_K_M", Size: "4.9 GiB"}},
 			{ID: "ai/gemma3", Metadata: &dmrmodels.Metadata{ContextWindow: 131072}},
 		}, nil
 	}
-	choices := r.AvailableModels(t.Context())
+	choices := r.AvailableModels(t.Context(), "")
 	byRef := map[string]ModelChoice{}
 	for _, choice := range choices {
 		byRef[choice.Ref] = choice
@@ -286,10 +286,10 @@ func TestDMRMetadataInPicker(t *testing.T) {
 
 func TestConfiguredContextWithoutDiscovery(t *testing.T) {
 	t.Parallel()
-	r := dmrRuntime(func(context.Context) ([]string, error) { return nil, errors.New("unavailable") }, stubModelStore{}, map[string]latest.ModelConfig{
+	r := dmrRuntime(func(context.Context) ([]string, error) { return nil, errors.New("unavailable") }, stubStore{}, map[string]latest.ModelConfig{
 		"local": {Provider: "dmr", Model: "ai/qwen3", ProviderOpts: map[string]any{"context_size": 4096}},
 	})
-	choices := r.AvailableModels(t.Context())
+	choices := r.AvailableModels(t.Context(), "")
 	require.Len(t, choices, 1)
 	assert.Equal(t, 4096, choices[0].ContextLimit)
 }
@@ -306,15 +306,15 @@ func TestConfiguredContextIntegerBounds(t *testing.T) {
 				t.Run(strconv.FormatBool(discovered), func(t *testing.T) {
 					t.Parallel()
 
-					r := dmrRuntime(nil, stubModelStore{}, map[string]latest.ModelConfig{
+					r := dmrRuntime(nil, stubStore{}, map[string]latest.ModelConfig{
 						"local": {Provider: "dmr", Model: "ai/qwen3", ProviderOpts: map[string]any{"context_size": value}},
 					})
 					if discovered {
-						r.dmrModelLister = func(context.Context) ([]dmrmodels.Model, error) {
+						r.ListDMR = func(context.Context) ([]dmrmodels.Model, error) {
 							return []dmrmodels.Model{{ID: "ai/qwen3", Metadata: &dmrmodels.Metadata{ContextWindow: 4096}}}, nil
 						}
 					}
-					choices := r.AvailableModels(t.Context())
+					choices := r.AvailableModels(t.Context(), "")
 					require.Len(t, choices, 1)
 					assert.Equal(t, min(n, int64(math.MaxInt)), int64(choices[0].ContextLimit))
 					assert.Positive(t, choices[0].ContextLimit)
