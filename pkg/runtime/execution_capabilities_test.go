@@ -15,32 +15,33 @@ import (
 	"github.com/docker/docker-agent/pkg/api"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/harness"
+	"github.com/docker/docker-agent/pkg/runtime/inspection"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-func nativeExecutionProfile() *ExecutionCapabilities {
-	return &ExecutionCapabilities{
+func nativeExecutionProfile() *inspection.ExecutionCapabilities {
+	return &inspection.ExecutionCapabilities{
 		Mode: "native", ToolExecution: "docker-agent", ToolApproval: "docker-agent-policy",
 		BudgetSupported: true, CompactionSupported: true, MidTurnSteeringSupported: true, PromptHookContextSupported: true,
 	}
 }
 
-func harnessExecutionProfile() *ExecutionCapabilities {
-	return &ExecutionCapabilities{Mode: "harness", ToolExecution: "harness-reported", ToolApproval: "external"}
+func harnessExecutionProfile() *inspection.ExecutionCapabilities {
+	return &inspection.ExecutionCapabilities{Mode: "harness", ToolExecution: "harness-reported", ToolApproval: "external"}
 }
 
 func TestExecutionCapabilitiesProfiles(t *testing.T) {
 	t.Parallel()
-	assert.Nil(t, executionCapabilities(nil))
+	assert.Nil(t, inspection.Capabilities(nil))
 	assert.Nil(t, (*LocalRuntime)(nil).AgentExecutionCapabilities("native"))
 	assert.Nil(t, (&LocalRuntime{}).AgentExecutionCapabilities("native"))
-	assert.Equal(t, nativeExecutionProfile(), executionCapabilities(agent.New("native", "")))
-	assert.Equal(t, harnessExecutionProfile(), executionCapabilities(agent.New("harness", "", agent.WithHarness(&latest.HarnessConfig{Type: "codex"}))))
-	profile := executionCapabilities(agent.New("native", ""))
+	assert.Equal(t, nativeExecutionProfile(), inspection.Capabilities(agent.New("native", "")))
+	assert.Equal(t, harnessExecutionProfile(), inspection.Capabilities(agent.New("harness", "", agent.WithHarness(&latest.HarnessConfig{Type: "codex"}))))
+	profile := inspection.Capabilities(agent.New("native", ""))
 	profile.ToolApproval = "changed"
-	assert.Equal(t, nativeExecutionProfile(), executionCapabilities(agent.New("native", "")), "profiles must not share mutable values")
+	assert.Equal(t, nativeExecutionProfile(), inspection.Capabilities(agent.New("native", "")), "profiles must not share mutable values")
 }
 
 type capabilityProbeToolset struct {
@@ -71,7 +72,7 @@ func TestExecutionCapabilitiesInspectionIsLazy(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, rt.Close()) })
 	for _, tc := range []struct {
 		name string
-		want *ExecutionCapabilities
+		want *inspection.ExecutionCapabilities
 	}{
 		{"native", nativeExecutionProfile()}, {"external", harnessExecutionProfile()}, {"missing", nil},
 	} {
@@ -151,7 +152,7 @@ func TestExecutionCapabilitiesJSONCompatibility(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name    string
-		profile *ExecutionCapabilities
+		profile *inspection.ExecutionCapabilities
 	}{
 		{"unknown", nil}, {"native", nativeExecutionProfile()}, {"harness", harnessExecutionProfile()},
 	} {
@@ -198,7 +199,7 @@ func (c *capabilityRemoteClient) RunAgent(context.Context, string, string, []api
 
 func TestExecutionCapabilitiesRemoteDoesNotInferSupport(t *testing.T) {
 	t.Parallel()
-	for _, capabilities := range []*ExecutionCapabilities{nil, harnessExecutionProfile()} {
+	for _, capabilities := range []*inspection.ExecutionCapabilities{nil, harnessExecutionProfile()} {
 		t.Run(fmt.Sprintf("known=%t", capabilities != nil), func(t *testing.T) {
 			t.Parallel()
 			roster := TeamInfo([]AgentDetails{{Name: "root", ExecutionCapabilities: capabilities}}, "root")
