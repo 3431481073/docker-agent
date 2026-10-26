@@ -1,4 +1,4 @@
-package runtime
+package artifacts
 
 import (
 	"context"
@@ -12,15 +12,16 @@ import (
 
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/workspacemedia"
 )
 
 // resolverTestRuntime is a LocalRuntime over an in-memory store with one
 // owning session that has a real workspace root.
-func resolverTestRuntime(t *testing.T, sess *session.Session) (*LocalRuntime, session.Store) {
+func resolverTestRuntime(t *testing.T, sess *session.Session) (*Service, session.Store) {
 	t.Helper()
 	store := session.NewInMemorySessionStore()
 	require.NoError(t, store.AddSession(t.Context(), sess))
-	return &LocalRuntime{sessionStore: store, now: time.Now}, store
+	return &Service{Store: store, Now: time.Now}, store
 }
 
 // recordWorkspaceFile writes content at relPath under root and records it
@@ -97,7 +98,7 @@ func TestResolveGeneratedFile_InvalidWorkspacePathRefusedBeforeLookup(t *testing
 	for _, target := range []string{"/outside/cat.png", "../cat.png", "~/cat.png", `C:\outside\cat.png`, `C:cat.png`, `\\server\share\cat.png`, "a/../cat.png", "a//cat.png", "cat\x00.png", "cat\n.png", ""} {
 		t.Run(target, func(t *testing.T) {
 			store := &countingStore{Store: session.NewInMemorySessionStore()}
-			r := &LocalRuntime{sessionStore: store, now: time.Now}
+			r := &Service{Store: store, Now: time.Now}
 			_, err := r.ResolveGeneratedFile(t.Context(), workspaceRef("owner", target))
 			require.ErrorIs(t, err, ErrGeneratedFileUnavailable)
 			assert.Zero(t, store.lookups)
@@ -112,7 +113,7 @@ func TestResolveGeneratedFile_ExternalRootRefusedBeforeLookup(t *testing.T) {
 	inner := session.NewInMemorySessionStore()
 	require.NoError(t, inner.AddSession(t.Context(), sess))
 	store := &countingStore{Store: inner}
-	r := &LocalRuntime{sessionStore: store, now: time.Now}
+	r := &Service{Store: store, Now: time.Now}
 	target := filepath.Join(t.TempDir(), "cat.png")
 	require.NoError(t, os.WriteFile(target, []byte("external-bytes"), 0o644))
 
@@ -287,7 +288,7 @@ func TestResolveGeneratedFile_ForgedHistoricalExternalManifestRefused(t *testing
 	store := &fixedManifestStore{Store: inner, file: session.GeneratedFile{
 		SessionID: sess.ID, RelPath: target, Root: external, MimeType: "image/png", CreatedAt: time.Now(),
 	}}
-	r := &LocalRuntime{sessionStore: store, now: time.Now}
+	r := &Service{Store: store, Now: time.Now}
 
 	_, err := r.ResolveGeneratedFile(t.Context(), GeneratedFileRef{
 		OwnerSessionID: sess.ID, Root: chat.ArtifactRootWorkspace, Path: target,
@@ -358,7 +359,7 @@ func TestResolveGeneratedFile_CachesRootButRevalidatesManifest(t *testing.T) {
 	inner := session.NewInMemorySessionStore()
 	require.NoError(t, inner.AddSession(t.Context(), sess))
 	store := &countingStore{Store: inner}
-	r := &LocalRuntime{sessionStore: store, now: time.Now}
+	r := &Service{Store: store, Now: time.Now}
 	recordWorkspaceFile(t, store, sess.ID, root, "cat.png", []byte("png"))
 
 	for range 3 {
@@ -376,11 +377,11 @@ func TestResolveGeneratedFile_RecordSeedsOnlyRootCache(t *testing.T) {
 	inner := session.NewInMemorySessionStore()
 	require.NoError(t, inner.AddSession(t.Context(), sess))
 	store := &countingStore{Store: inner}
-	r := &LocalRuntime{sessionStore: store, now: time.Now}
+	r := &Service{Store: store, Now: time.Now}
 
 	require.NoError(t, os.WriteFile(filepath.Join(root, "cat.png"), []byte("png"), 0o644))
 	require.NoError(t, r.recordGeneratedFile(t.Context(), sess.ID, chat.ArtifactRootWorkspace, "cat.png", "image/png"))
-	r.generatedFiles.setRoot(sess.ID, root) // materializeGeneratedMedia seeds this alongside
+	r.roots.setRoot(sess.ID, root) // materializeGeneratedMedia seeds this alongside
 
 	_, err := r.ResolveGeneratedFile(t.Context(), workspaceRef(sess.ID, "cat.png"))
 	require.NoError(t, err)
@@ -394,7 +395,7 @@ func TestResolveGeneratedFile_SessionDeletionRevokesCachedResolution(t *testing.
 	inner := session.NewInMemorySessionStore()
 	require.NoError(t, inner.AddSession(t.Context(), sess))
 	store := &countingStore{Store: inner}
-	r := &LocalRuntime{sessionStore: store, now: time.Now}
+	r := &Service{Store: store, Now: time.Now}
 	recordWorkspaceFile(t, store, sess.ID, root, "cat.png", []byte("original"))
 
 	resolved, err := r.ResolveGeneratedFile(t.Context(), workspaceRef(sess.ID, "cat.png"))
@@ -412,11 +413,12 @@ func TestResolveGeneratedFile_SessionDeletionRevokesCachedResolution(t *testing.
 // materialization path and resolves the reference it persisted — the
 // exact live TUI flow.
 func TestResolveGeneratedFile_MaterializedEndToEnd(t *testing.T) {
-	r, store, _ := newMediaTestRuntime(t)
+	r, store := resolverTestRuntime(t, &session.Session{ID: "initial"})
+	r.Write = workspacemedia.Write
 	sess, root := workspaceSession(t, "sess-e2e")
 	require.NoError(t, store.AddSession(t.Context(), sess))
 
-	parts := r.materializeGeneratedMedia(t.Context(), sess, []chat.MediaDelta{
+	parts := r.Materialize(t.Context(), sess, []chat.MediaDelta{
 		{Data: []byte{0xAA}, MimeType: "image/png", Name: "cat.png", Size: 1},
 	}, "root", nil)
 	require.Len(t, parts, 1)
@@ -433,4 +435,25 @@ func TestResolveGeneratedFile_MaterializedEndToEnd(t *testing.T) {
 	canonicalRoot, err := filepath.EvalSymlinks(root)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(canonicalRoot, "cat.png"), resolved.Path)
+}
+
+func requireSymlinkSupport(t *testing.T) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Symlink("target", filepath.Join(root, "probe")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+}
+
+func workspaceSession(t *testing.T, id string) (*session.Session, string) {
+	t.Helper()
+	root := t.TempDir()
+	return &session.Session{ID: id, WorkingDir: root}, root
+}
+
+func manifestOf(t *testing.T, store session.Store) session.GeneratedMediaManifest {
+	t.Helper()
+	manifest, ok := store.(session.GeneratedMediaManifest)
+	require.True(t, ok)
+	return manifest
 }

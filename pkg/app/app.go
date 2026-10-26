@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/artifacts"
 	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
 	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
@@ -1494,7 +1495,7 @@ type contextBreakdownProvider interface {
 // local runtime implements it; remote runtimes never deliver generated-file
 // payloads, so UIs treat the missing capability as "nothing to resolve".
 type generatedFileResolver interface {
-	ResolveGeneratedFile(ctx context.Context, ref runtime.GeneratedFileRef) (*runtime.ResolvedGeneratedFile, error)
+	ResolveGeneratedFile(ctx context.Context, ref artifacts.GeneratedFileRef) (*artifacts.ResolvedGeneratedFile, error)
 }
 
 // CanResolveGeneratedFiles reports whether the runtime can resolve
@@ -1509,7 +1510,7 @@ func (a *App) CanResolveGeneratedFiles() bool {
 // Returns an error wrapping [runtime.ErrUnsupported] when the runtime does
 // not own local generated media (e.g. remote runtimes). Callers must treat
 // any error as "unavailable" — never surface its text to the user.
-func (a *App) ResolveGeneratedFile(ctx context.Context, ref runtime.GeneratedFileRef) (*runtime.ResolvedGeneratedFile, error) {
+func (a *App) ResolveGeneratedFile(ctx context.Context, ref artifacts.GeneratedFileRef) (*artifacts.ResolvedGeneratedFile, error) {
 	resolver, ok := a.runtime.(generatedFileResolver)
 	if !ok {
 		return nil, fmt.Errorf("generated file resolution: %w", runtime.ErrUnsupported)
