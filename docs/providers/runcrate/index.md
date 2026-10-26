@@ -13,8 +13,13 @@ _Use Runcrate models with Docker Agent._
 [Runcrate](https://www.runcrate.ai/?utm_source=docker-agent&utm_medium=directory&utm_campaign=gpu_pricing)
 is a GPU cloud that also serves open models (DeepSeek, GLM, Qwen, gpt-oss and
 others) through an OpenAI-compatible API. Docker Agent includes built-in
-support for Runcrate as an alias provider. Open models are free with your
-GitHub account.
+support for Runcrate as an alias provider.
+
+Some open models come with a limited free allowance for GitHub accounts at
+least 30 days old. Once the allowance is used up, or when free capacity is
+busy, requests from a workspace with credit are billed to that credit. See
+[Runcrate's free inference terms](https://www.runcrate.ai/inference/free?utm_source=docker-agent&utm_medium=directory&utm_campaign=gpu_pricing)
+for the current models, limits and prices.
 
 ## Setup
 
