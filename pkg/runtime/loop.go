@@ -20,11 +20,10 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/compaction"
-	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider"
-	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/modelsdev"
+	"github.com/docker/docker-agent/pkg/runtime/pricing"
 	"github.com/docker/docker-agent/pkg/runtime/toolexec"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/telemetry/genai"
@@ -835,7 +834,7 @@ func (r *LocalRuntime) runTurn(
 			}
 		}
 		// Serving endpoints may share an ID but have different rates or cost overrides.
-		m = applyModelCost(m, modelID, res.Usage, servingConfig)
+		m = pricing.ApplyModelCost(m, modelID, res.Usage, servingConfig)
 	}
 
 	// A successful model call resets the overflow compaction counter.
@@ -847,7 +846,7 @@ func (r *LocalRuntime) runTurn(
 	// equal the cost the session bills for this turn. It is nil when
 	// the turn cannot be priced (no usage, or a model with no pricing
 	// table); see computeMessageCost.
-	msgCost := computeMessageCost(res.Usage, m)
+	msgCost := pricing.ComputeMessageCost(res.Usage, m)
 	if res.Usage != nil {
 		modelName := "unknown"
 		if m != nil {
@@ -1141,63 +1140,6 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 		}
 	}
 	return sess.GetAllMessages(), nil
-}
-
-func applyModelCost(m *modelsdev.Model, id modelsdev.ID, usage *chat.Usage, config base.Config) *modelsdev.Model {
-	cfg := config.ModelConfig
-	// Unreported routing endpoints and custom endpoints cannot use vendor tier multipliers.
-	isCustomEndpoint := func(endpoint string) bool {
-		return endpoint != "" && strings.TrimRight(endpoint, "/") != "https://api.openai.com/v1"
-	}
-	customEndpoint := isCustomEndpoint(cfg.BaseURL) || isCustomEndpoint(config.BaseURL)
-	if cfg.Cost != nil || customEndpoint || len(cfg.Routing) > 0 || m == nil || usage == nil {
-		return applyConfigCost(m, id, cfg.Cost)
-	}
-	cost := m.Cost.ForServiceTier(id, usage.ServiceTier)
-	if cost == m.Cost {
-		return m
-	}
-	out := *m
-	out.Cost = cost
-	return &out
-}
-
-// applyConfigCost overlays a config-declared price table (USD per 1M tokens)
-// onto the catalogue entry, returning m untouched when there is no override.
-// It never mutates m: the store caches entries shared across sessions. When
-// the model is uncatalogued (m == nil) a minimal entry is synthesized so the
-// call is still priced — this is the escape hatch for custom endpoints that
-// models.dev cannot describe.
-func applyConfigCost(m *modelsdev.Model, id modelsdev.ID, cost *latest.CostConfig) *modelsdev.Model {
-	if cost == nil {
-		return m
-	}
-	var out modelsdev.Model
-	if m != nil {
-		out = *m
-	} else {
-		out.Name = id.Model
-	}
-	out.Cost = &modelsdev.Cost{
-		Input:      cost.Input,
-		Output:     cost.Output,
-		CacheRead:  cost.CacheRead,
-		CacheWrite: cost.CacheWrite,
-	}
-	return &out
-}
-
-// computeMessageCost prices the whole call at the tier selected by its prompt size.
-// Nil means unpriced; a non-nil zero means free. Messages and hooks share this value.
-func computeMessageCost(usage *chat.Usage, m *modelsdev.Model) *float64 {
-	if usage == nil || m == nil || m.Cost == nil {
-		return nil
-	}
-	rates := m.Cost.RatesFor(usage.PromptTokens())
-	return new((float64(usage.InputTokens)*rates.Input +
-		float64(usage.OutputTokens)*rates.Output +
-		float64(usage.CachedInputTokens)*rates.CacheRead +
-		float64(usage.CacheWriteTokens)*rates.CacheWrite) / 1e6)
 }
 
 func shouldWarnOnCacheMiss(sess *session.Session, usage *MessageUsage) bool {

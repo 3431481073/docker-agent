@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/runtime/compactor"
+	"github.com/docker/docker-agent/pkg/runtime/pricing"
 	"github.com/docker/docker-agent/pkg/session"
 )
 
@@ -165,7 +166,7 @@ func compactionCost(res *chat.CompactionResult, m *modelsdev.Model, modelID mode
 	var total float64
 	for i := range iterations {
 		usage := iterations[i]
-		cost := computeMessageCost(&usage, applyModelCost(m, modelID, &usage, cfg))
+		cost := pricing.ComputeMessageCost(&usage, pricing.ApplyModelCost(m, modelID, &usage, cfg))
 		if cost == nil {
 			return nil
 		}

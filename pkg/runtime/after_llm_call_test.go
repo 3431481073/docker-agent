@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/modelsdev"
+	"github.com/docker/docker-agent/pkg/runtime/pricing"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
 )
@@ -168,7 +169,7 @@ func TestAfterLLMCallHook_PopulatesUsageAndCost(t *testing.T) {
 	expected := (float64(10)*rate.Input + float64(5)*rate.Output) / 1e6
 	require.NotNil(t, in.Cost, "Cost must be non-nil for a priced model")
 	assert.InDelta(t, expected, *in.Cost, 1e-9,
-		"hook Cost must equal computeMessageCost(usage, model)")
+		"hook Cost must equal pricing.ComputeMessageCost(usage, model)")
 
 	// The headline guarantee: the cost the hook reports is the same
 	// cost the session bills for the turn. OwnCost sums the recorded
@@ -380,20 +381,20 @@ func TestComputeMessageCost(t *testing.T) {
 
 	t.Run("nil usage is unpriced", func(t *testing.T) {
 		t.Parallel()
-		assert.Nil(t, computeMessageCost(nil, &modelsdev.Model{Cost: rate}))
+		assert.Nil(t, pricing.ComputeMessageCost(nil, &modelsdev.Model{Cost: rate}))
 	})
 	t.Run("nil model is unpriced", func(t *testing.T) {
 		t.Parallel()
-		assert.Nil(t, computeMessageCost(&chat.Usage{InputTokens: 1}, nil))
+		assert.Nil(t, pricing.ComputeMessageCost(&chat.Usage{InputTokens: 1}, nil))
 	})
 	t.Run("model without pricing table is unpriced", func(t *testing.T) {
 		t.Parallel()
-		assert.Nil(t, computeMessageCost(&chat.Usage{InputTokens: 1}, &modelsdev.Model{}))
+		assert.Nil(t, pricing.ComputeMessageCost(&chat.Usage{InputTokens: 1}, &modelsdev.Model{}))
 	})
 	t.Run("priced computes from all token classes", func(t *testing.T) {
 		t.Parallel()
 		usage := &chat.Usage{InputTokens: 10, OutputTokens: 5, CachedInputTokens: 4, CacheWriteTokens: 2}
-		got := computeMessageCost(usage, &modelsdev.Model{Cost: rate})
+		got := pricing.ComputeMessageCost(usage, &modelsdev.Model{Cost: rate})
 		require.NotNil(t, got)
 		expected := (10*rate.Input + 5*rate.Output + 4*rate.CacheRead + 2*rate.CacheWrite) / 1e6
 		assert.InDelta(t, expected, *got, 1e-9)
@@ -412,13 +413,13 @@ func TestComputeMessageCost(t *testing.T) {
 
 		// Fresh + cached input sum to exactly the threshold: base band.
 		atLimit := &chat.Usage{InputTokens: 72_000, CachedInputTokens: 200_000, OutputTokens: 1_000}
-		got := computeMessageCost(atLimit, m)
+		got := pricing.ComputeMessageCost(atLimit, m)
 		require.NotNil(t, got)
 		assert.InDelta(t, (72_000*2.5+200_000*0.25+1_000*15)/1e6, *got, 1e-9)
 
 		// One more cached token tips the whole request into the tier.
 		over := &chat.Usage{InputTokens: 72_000, CachedInputTokens: 200_001, OutputTokens: 1_000}
-		got = computeMessageCost(over, m)
+		got = pricing.ComputeMessageCost(over, m)
 		require.NotNil(t, got)
 		assert.InDelta(t, (72_000*5+200_001*0.5+1_000*22.5)/1e6, *got, 1e-9)
 	})
