@@ -165,7 +165,7 @@ var DefaultModels = map[string]string{
 	"api-route":      "gpt-6.1-sol",
 	"atlascloud":     "qwen/qwen3.8-max",
 	"opper":          "claude-sonnet-4-6",
-	"baseten":        "deepseek-ai/DeepSeek-V4-Pro",
+	"baseten":        "deepseek-ai/DeepSeek-V4-Pro-0813",
 	"ovhcloud":       "Qwen3.5-397B-A17B",
 	"daoxe":          "claude-sonnet-4-6",
 	"groq":           "llama-3.3-70b-versatile",
