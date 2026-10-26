@@ -691,13 +691,7 @@ func (r *LocalRuntime) executeUserPromptSubmitHooks(ctx context.Context, sess *s
 		SessionID: sess.ID,
 		Prompt:    prompt,
 	}, events)
-	if result == nil {
-		return false, "", nil
-	}
-	if !result.Allowed {
-		return true, result.Message, nil
-	}
-	return false, "", contextMessages(result)
+	return submissionResult(result)
 }
 
 // executeUserSteeringMessagesSubmitHooks fires
@@ -713,13 +707,7 @@ func (r *LocalRuntime) executeUserSteeringMessagesSubmitHooks(ctx context.Contex
 		SessionID:        sess.ID,
 		SteeringMessages: steeringMessages,
 	}, events)
-	if result == nil {
-		return false, "", nil
-	}
-	if !result.Allowed {
-		return true, result.Message, nil
-	}
-	return false, "", contextMessages(result)
+	return submissionResult(result)
 }
 
 // executeUserFollowupSubmitHooks fires user_followup_submit each time
@@ -736,13 +724,7 @@ func (r *LocalRuntime) executeUserFollowupSubmitHooks(ctx context.Context, sess 
 		SessionID: sess.ID,
 		Prompt:    prompt,
 	}, events)
-	if result == nil {
-		return false, "", nil
-	}
-	if !result.Allowed {
-		return true, result.Message, nil
-	}
-	return false, "", contextMessages(result)
+	return submissionResult(result)
 }
 
 // executePreCompactHooks fires pre_compact just before compaction.
@@ -777,4 +759,14 @@ func (r *LocalRuntime) executeSubagentStopHooks(ctx context.Context, parent, chi
 		AgentName:       subAgentName,
 		StopResponse:    response,
 	}, nil)
+}
+
+func submissionResult(result *hooks.Result) (stop bool, message string, contextMsgs []chat.Message) {
+	if result == nil {
+		return false, "", nil
+	}
+	if !result.Allowed {
+		return true, result.Message, nil
+	}
+	return false, "", contextMessages(result)
 }
