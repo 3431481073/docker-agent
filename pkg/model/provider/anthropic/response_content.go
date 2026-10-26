@@ -180,8 +180,8 @@ func toolInput(raw string) any {
 // when its thinking is unchanged, taking text, tool names and arguments from
 // msg. Runtime transforms (sanitized tool names, redacted arguments) change
 // only those, so the signed and redacted thinking blocks stay valid. ok is
-// false when the thinking changed, the tool calls no longer line up, or the
-// state is from a format this build cannot read.
+// false when thinking changed, tool calls no longer line up, text edits cannot
+// preserve thinking prefixes and block boundaries, or the state is unreadable.
 func recoveredContent(msg *chat.Message, keepMarkers bool) (json.RawMessage, bool) {
 	state := msg.ProviderState
 	if !msg.HasOwnRawContent(providerStateName) || state.Version > chat.ProviderStateVersion {
@@ -193,17 +193,26 @@ func recoveredContent(msg *chat.Message, keepMarkers bool) (json.RawMessage, boo
 	if decoder.Decode(&blocks) != nil {
 		return nil, false
 	}
-	var thinking strings.Builder
+	var thinking, visible strings.Builder
 	var text []int
+	lastThinking, firstTool := -1, len(blocks)
 	call := 0
 	for i, b := range blocks {
 		switch b["type"] {
 		case "thinking":
 			s, _ := b["thinking"].(string)
 			thinking.WriteString(s)
+			lastThinking = i
+		case "redacted_thinking":
+			lastThinking = i
 		case "text":
+			s, _ := b["text"].(string)
+			visible.WriteString(s)
 			text = append(text, i)
 		case "tool_use":
+			if call == 0 {
+				firstTool = i
+			}
 			if call >= len(msg.ToolCalls) || b["id"] != msg.ToolCalls[call].ID {
 				return nil, false
 			}
@@ -215,21 +224,26 @@ func recoveredContent(msg *chat.Message, keepMarkers bool) (json.RawMessage, boo
 	if call != len(msg.ToolCalls) || thinking.String() != msg.ReasoningContent {
 		return nil, false
 	}
-	// The visible text may have been rewritten as a whole: keep it in the first
-	// text block, or before the first tool call when the turn had none.
-	drop := map[int]bool{}
-	if len(text) > 0 {
-		blocks[text[0]]["text"] = msg.Content
-		for _, i := range text[1:] {
-			drop[i] = true
+	if visible.String() == msg.Content {
+		raw, err := json.Marshal(blocks)
+		return raw, err == nil
+	}
+	// Flattened edits cannot be assigned to multiple original text blocks
+	// without moving text across thinking, tools or fallback markers.
+	if len(text) > 1 {
+		return nil, false
+	}
+	if len(text) == 1 {
+		if lastThinking > text[0] {
+			return nil, false
 		}
+		blocks[text[0]]["text"] = msg.Content
+	} else if lastThinking >= firstTool {
+		return nil, false
 	}
 	patched := make([]map[string]any, 0, len(blocks))
 	inserted := len(text) > 0 || msg.Content == ""
-	for i, b := range blocks {
-		if drop[i] {
-			continue
-		}
+	for _, b := range blocks {
 		if !inserted && b["type"] == "tool_use" {
 			patched = append(patched, map[string]any{"type": "text", "text": msg.Content})
 			inserted = true

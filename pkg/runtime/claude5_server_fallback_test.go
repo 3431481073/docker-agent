@@ -99,3 +99,90 @@ func TestServerFallbackLifecycle(t *testing.T) {
 	assert.NotContains(t, string(raw), "sig-declined")
 	assert.Zero(t, calls.Load())
 }
+
+func TestSanitizedTurnReplayAfterReload(t *testing.T) {
+	t.Parallel()
+
+	for _, fallback := range []bool{false, true} {
+		name := "interleaved"
+		if fallback {
+			name = "fallback"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := anthropictest.NewServer(t,
+				anthropictest.RecoveryToolReply("msg_tools", fallback),
+				anthropictest.TextReply("msg_done", "done", 10),
+				anthropictest.TextReply("msg_reloaded", "next", 10),
+			)
+			var calls atomic.Int32
+			record := agent.WithTools(tools.Tool{Name: "record", Parameters: map[string]any{"type": "object"}, Handler: func(_ context.Context, call tools.ToolCall, _ tools.Runtime) (*tools.ToolCallResult, error) {
+				calls.Add(1)
+				assert.Equal(t, "t-kept", call.ID, "declined calls must not run")
+				assert.Equal(t, "record", call.Function.Name)
+				return tools.ResultSuccess("recorded"), nil
+			}})
+			opts := map[string]any{"interleaved_thinking": true}
+			if fallback {
+				opts["fallbacks"] = []any{"claude-sonnet-4-6"}
+			}
+			dbPath := filepath.Join(t.TempDir(), "sessions.db")
+			rt := anthropicRuntime(t, server, "claude-opus-4-8", opts, openSessionStore(t, dbPath), record)
+			sess := session.New(session.WithUserMessage("u1"), session.WithToolsApproved(true))
+			requireNoErrorEvents(t, drainRunStream(t, rt, sess))
+			require.EqualValues(t, 1, calls.Load())
+
+			loaded, err := openSessionStore(t, dbPath).GetSession(t.Context(), sess.ID)
+			require.NoError(t, err)
+			var stored *chat.Message
+			for _, item := range loaded.Messages {
+				if item.Message != nil && len(item.Message.Message.ToolCalls) > 0 {
+					stored = &item.Message.Message
+					break
+				}
+			}
+			require.NotNil(t, stored)
+			require.Len(t, stored.ToolCalls, 1)
+			assert.Equal(t, "record", stored.ToolCalls[0].Function.Name)
+			require.NotNil(t, stored.ProviderState)
+			var original []map[string]any
+			require.NoError(t, json.Unmarshal(stored.ProviderState.Content, &original))
+			assert.Contains(t, original, map[string]any{"type": "tool_use", "id": "t-kept", "name": `record" path="x`, "input": map[string]any{}})
+			storedBefore, err := json.Marshal(stored)
+			require.NoError(t, err)
+
+			loaded.AddMessage(session.UserMessage("u2"))
+			reloaded := anthropicRuntime(t, server, "claude-opus-4-8", opts, openSessionStore(t, dbPath), record)
+			requireNoErrorEvents(t, drainRunStream(t, reloaded, loaded))
+			storedAfter, err := json.Marshal(stored)
+			require.NoError(t, err)
+			assert.Equal(t, string(storedBefore), string(storedAfter), "replay must not rewrite stored history")
+
+			requests := server.Requests()
+			require.Len(t, requests, 3)
+			want := []string{"text", "thinking:sig-intact", "text", "tool_use:t-kept", "text"}
+			if fallback {
+				want = append([]string{"text", "fallback"}, want[1:]...)
+			}
+			for _, i := range []int{1, 2} {
+				assert.Equal(t, want, assistantBlocks(t, requests[i])[0])
+				messages := requests[i].Body["messages"].([]any)
+				content := messages[1].(map[string]any)["content"].([]any)
+				var texts []string
+				for _, block := range content {
+					b := block.(map[string]any)
+					if b["type"] == "text" {
+						texts = append(texts, b["text"].(string))
+					}
+					if b["type"] == "tool_use" {
+						assert.Equal(t, "record", b["name"])
+					}
+				}
+				assert.Equal(t, []string{"before ", "middle", " after"}, texts)
+				assert.NotContains(t, requests[i].Raw, "sig-declined")
+				assert.NotContains(t, requests[i].Raw, "t-declined")
+			}
+			assert.EqualValues(t, 1, calls.Load())
+		})
+	}
+}
