@@ -395,6 +395,29 @@ func TestHarnessSuppressesReplayedClaudeCodeFinalText(t *testing.T) {
 	assert.Equal(t, []string{"Hello", " world"}, chunks)
 }
 
+// A harness agent has no models to title its session with: Claude Code's
+// driver answers the title prompt itself.
+func TestHarnessAgentTitleGeneratedThroughClaudeCode(t *testing.T) {
+	if stdruntime.GOOS == "windows" {
+		t.Skip("shell script shim test")
+	}
+
+	useHarnessShim(t, "claude", `{"type":"result","subtype":"success","is_error":false,"result":"Fix the login bug"}`)
+
+	gen := newHarnessRuntime(t, "claude-code").TitleGenerator(t.Context())
+	require.NotNil(t, gen)
+	title, err := gen.Generate(t.Context(), "sess-1", []string{"the login form rejects valid passwords"})
+	require.NoError(t, err)
+	assert.Equal(t, "Fix the login bug", title)
+
+	args, err := os.ReadFile(filepath.Join(harnessBinDir, "claude.args"))
+	require.NoError(t, err)
+	assert.Contains(t, string(args), "--no-session-persistence")
+	assert.NotContains(t, string(args), "--dangerously-skip-permissions")
+
+	assert.Nil(t, newHarnessRuntime(t, "codex").TitleGenerator(t.Context()), "the codex driver cannot answer one-shot prompts")
+}
+
 func newHarnessRuntime(t *testing.T, harnessType string) *LocalRuntime {
 	t.Helper()
 	return newHarnessRuntimeWithStore(t, harnessType, session.NewInMemorySessionStore())

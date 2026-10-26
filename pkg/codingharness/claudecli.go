@@ -3,6 +3,8 @@ package codingharness
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,6 +34,14 @@ const (
 	// claudeProbeTimeout bounds each CLI invocation of the probe so a hung
 	// `claude` process cannot stall doctor or setup.
 	claudeProbeTimeout = 15 * time.Second
+
+	// claudeCompleteModel answers one-shot prompts: the small, fast model
+	// Claude Code uses for its own background tasks.
+	claudeCompleteModel = "haiku"
+
+	// claudeCompleteWaitDelay bounds the wait for a canceled one-shot prompt
+	// whose output pipe is still held open, e.g. by a child process.
+	claudeCompleteWaitDelay = time.Second
 )
 
 // claudeLoginArgs is ClaudeLoginCommand as argv, kept next to the constant so
@@ -181,6 +191,51 @@ func (p ClaudeCLIProbe) runOutput(ctx context.Context, name string, args ...stri
 func firstLine(out []byte) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	return strings.TrimSpace(line)
+}
+
+// claudeCodeProvider is the Claude Code harness driver. It also implements
+// harness.Completer, so harness agents get session titles.
+type claudeCodeProvider struct {
+	provider
+}
+
+// Complete answers prompt with the claude CLI's fast model, without tools, MCP
+// servers or a saved session. Like the probe, its errors never carry output.
+func (claudeCodeProvider) Complete(ctx context.Context, systemPrompt, prompt string) (string, error) {
+	cmd := exec.CommandContext(ctx, claudeBinary, claudeCompleteArgs(systemPrompt)...)
+	// Through stdin, a long or dash-led prompt is never parsed as arguments.
+	cmd.Stdin = strings.NewReader(prompt)
+	cmd.WaitDelay = claudeCompleteWaitDelay
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("`claude --print` failed: %w", err)
+	}
+
+	var result struct {
+		Type    string `json:"type"`
+		IsError bool   `json:"is_error"`
+		Result  string `json:"result"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil || result.Type != "result" {
+		return "", errors.New("`claude --print` returned unexpected output")
+	}
+	if result.IsError {
+		return "", errors.New("`claude --print` reported an error")
+	}
+	return result.Result, nil
+}
+
+func claudeCompleteArgs(systemPrompt string) []string {
+	return []string{
+		"--print",
+		"--model", claudeCompleteModel,
+		"--system-prompt", systemPrompt,
+		// An empty list disables every built-in tool.
+		"--tools", "",
+		"--strict-mcp-config",
+		"--no-session-persistence",
+		"--output-format", "json",
+	}
 }
 
 // RunClaudeLogin runs the official interactive Claude Code login

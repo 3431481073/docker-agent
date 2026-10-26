@@ -56,5 +56,12 @@ type Provider interface {
 	Resume(ctx context.Context, sessionID, prompt string, handle func(Event)) error
 }
 
+// Completer is an optional Provider capability: answering a one-shot prompt
+// without tools or a persisted harness session, as session titles need.
+type Completer interface {
+	Provider
+	Complete(ctx context.Context, systemPrompt, prompt string) (string, error)
+}
+
 // Factory builds the Provider for a harness configuration.
 type Factory func(cfg *latest.HarnessConfig) (Provider, error)

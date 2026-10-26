@@ -8,10 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/harness"
 )
 
 // fakeClaudeCLI scripts the probe's exec seams and records every invocation,
@@ -204,6 +208,79 @@ func TestClaudeCLIProbe_MissingBinaryWithDefaultSeams(t *testing.T) {
 	status := ProbeClaudeCLI(t.Context())
 
 	assert.Equal(t, ClaudeStateNotInstalled, status.State)
+}
+
+// useClaudeCompleteCLI puts a fake `claude` first on PATH: it records its
+// arguments and stdin in dir, prints output and exits with code.
+func useClaudeCompleteCLI(t *testing.T, output string, code int) (dir string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake claude executable is a shell script")
+	}
+
+	dir = t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "out"), []byte(output), 0o600))
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat > %q\ncat %q\nexit %d\n",
+		filepath.Join(dir, "args"), filepath.Join(dir, "stdin"), filepath.Join(dir, "out"), code)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
+func TestFactoryOnlyClaudeCodeCompletes(t *testing.T) {
+	t.Parallel()
+
+	p, err := Factory(&latest.HarnessConfig{Type: TypeClaudeCode})
+	require.NoError(t, err)
+	assert.Implements(t, (*harness.Completer)(nil), p)
+
+	p, err = Factory(&latest.HarnessConfig{Type: TypeCodex})
+	require.NoError(t, err)
+	assert.NotImplements(t, (*harness.Completer)(nil), p)
+}
+
+func TestClaudeCodeComplete(t *testing.T) {
+	dir := useClaudeCompleteCLI(t, `{"type":"result","subtype":"success","is_error":false,"result":"Fix the login bug"}`, 0)
+	p, err := Factory(&latest.HarnessConfig{Type: TypeClaudeCode, Model: "opus", Effort: "max"})
+	require.NoError(t, err)
+
+	answer, err := p.(harness.Completer).Complete(t.Context(), "Be brief.", "--help me title this")
+	require.NoError(t, err)
+	assert.Equal(t, "Fix the login bug", answer)
+
+	args, err := os.ReadFile(filepath.Join(dir, "args"))
+	require.NoError(t, err)
+	assert.Equal(t, strings.Join([]string{
+		"--print", "--model", "haiku", "--system-prompt", "Be brief.",
+		"--tools", "", "--strict-mcp-config", "--no-session-persistence",
+		"--output-format", "json",
+	}, "\n")+"\n", string(args), "a tool-free, unsaved prompt on the fast model, without the agent's flags")
+	stdin, err := os.ReadFile(filepath.Join(dir, "stdin"))
+	require.NoError(t, err)
+	assert.Equal(t, "--help me title this", string(stdin), "the prompt goes through stdin, never argv")
+}
+
+func TestClaudeCodeCompleteErrorsOmitOutput(t *testing.T) {
+	for name, tt := range map[string]struct {
+		output string
+		code   int
+		want   string
+	}{
+		"reported error": {output: `{"type":"result","is_error":true,"result":"private-output-marker"}`, want: "reported an error"},
+		"not json":       {output: "private-output-marker", want: "unexpected output"},
+		"not a result":   {output: `{"type":"private-output-marker"}`, want: "unexpected output"},
+		"failed command": {output: "private-output-marker", code: 1, want: "exit status 1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			useClaudeCompleteCLI(t, tt.output, tt.code)
+			p, err := Factory(&latest.HarnessConfig{Type: TypeClaudeCode})
+			require.NoError(t, err)
+
+			_, err = p.(harness.Completer).Complete(t.Context(), "system", "prompt")
+			require.ErrorContains(t, err, tt.want)
+			assert.NotContains(t, err.Error(), "private-output-marker")
+		})
+	}
 }
 
 func TestClaudeCLIStatus_AuthSummaryOmitsEmptyFields(t *testing.T) {

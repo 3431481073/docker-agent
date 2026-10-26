@@ -79,6 +79,9 @@ agents:
   goes through Docker Agent's model providers or routing.
 - `effort` is forwarded as `--effort` and must be one of `low`, `medium`,
   `high`, `xhigh`, or `max`. Omit it to use Claude Code's own default.
+- Session titles come from the CLI as well, since a harness agent has no
+  model: Docker Agent runs `claude --print` once on the `haiku` model, with
+  no tools, MCP servers or saved session, to title a new session.
 
 #### Authentication (Claude subscription, no API key)
 

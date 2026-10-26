@@ -1159,11 +1159,15 @@ func (r *LocalRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string, 
 
 // TitleGenerator returns a title generator for automatic session title
 // generation, or nil when no configured model is a usable title candidate
-// (see [sessiontitle.New]).
+// (see [sessiontitle.New]). A harness agent has no models: its driver titles
+// the session when it implements [harness.Completer].
 func (r *LocalRuntime) TitleGenerator(ctx context.Context) *sessiontitle.Generator {
 	a := r.CurrentAgent()
 	if a == nil {
 		return nil
+	}
+	if a.HasHarness() {
+		return r.harnessTitleGenerator(a)
 	}
 	return sessiontitle.New(a.TitleModels(ctx)...)
 }
