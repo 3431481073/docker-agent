@@ -371,9 +371,17 @@ Or list up to three distinct models, tried in order:
 When a model declines mid-response, the turn continues on the fallback model.
 Docker Agent never runs a tool call the declining model made, stores the turn
 under the model that served it, and replays it on the next request as the API
-requires. The turn's cost adds up each attempt at its own model's rates; a
-declined attempt that produced no output is billed only in the refusal
-categories Anthropic bills.
+requires. The turn's cost adds up each model hop at its own rates, combining
+all of that hop's server-tool iterations. The dispatched hop retains its
+configured price override when the first marker echoes the requested model,
+including an alias; fallback hops use their own catalogue prices. Sticky hops
+never inherit the primary's override, including across server-tool iterations.
+A declined hop that produced output is billed. Before-output refusals are billed
+for `bio`, `frontier_llm`, and `reasoning_extraction`; other named categories and
+an explicit JSON-null category are unbilled. This also applies to the final
+refusal if the fallback chain is exhausted. Missing or invalid categories, or
+markers that cannot be matched to the usage hops in model order, remain billed
+conservatively. The top-level usage is not added again.
 
 Docker Agent sends the `server-side-fallback-2026-07-01` beta header, which
 accepts both forms, through the beta Messages API. The response's `model`

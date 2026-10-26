@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/respjson"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 
 	"github.com/docker/docker-agent/pkg/chat"
@@ -41,9 +42,7 @@ type betaStreamAdapter struct {
 	fallbackModels []string
 	markerSeen     bool
 	served         atomic.Pointer[string]
-	// declinedCategories holds each fallback marker's refusal category, in
-	// order: one per declined attempt.
-	declinedCategories []string
+	refusals       []refusalEvidence
 }
 
 // newBetaStreamAdapter creates a new Beta stream adapter
@@ -106,7 +105,11 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			a.toolCall = false
 			a.markerSeen = true
 			a.served.Store(&block.To.Model)
-			a.declinedCategories = append(a.declinedCategories, string(block.Trigger.Category))
+			category := block.Trigger.JSON.Category
+			if block.Trigger.Type != "refusal" {
+				category = respjson.Field{}
+			}
+			a.refusals = append(a.refusals, refusalEvidence{from: block.From.Model, to: block.To.Model, category: category})
 			response.Choices[0].Delta.ServerFallback = &chat.ServerFallback{From: block.From.Model, To: block.To.Model}
 		case anthropic.BetaThinkingBlock:
 			if block.Thinking != "" {
@@ -153,7 +156,11 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		a.settled.Store(true)
 		if a.trackUsage {
 			response.Usage = betaUsageFromMessage(a.message.Usage)
-			response.UsageAttempts = serverFallbackAttempts(a.message.Usage.Iterations, a.declinedCategories)
+			terminal := a.message.StopDetails.JSON.Category
+			if a.message.StopDetails.Type != "refusal" {
+				terminal = respjson.Field{}
+			}
+			response.UsageAttempts = serverFallbackAttempts(a.message.Usage.Iterations, a.refusals, a.config.ModelConfig.Model, a.stopReason, terminal)
 		}
 	case anthropic.BetaRawMessageStopEvent:
 		for _, dropped := range thinkingTransformations(a.message.InputTransformations) {
@@ -227,41 +234,76 @@ func betaUsageFromMessage(u anthropic.BetaUsage) *chat.Usage {
 // https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#how-refusals-are-billed
 var billedBeforeOutput = map[string]bool{"bio": true, "frontier_llm": true, "reasoning_extraction": true}
 
-// serverFallbackAttempts lists the attempts of a response a server fallback
-// spread across models, from usage.iterations: each declined hop ("message")
-// and the attempt that served it ("fallback_message"). A declined hop with no
-// output is billed only in a billed category; when the markers don't line up
-// with the declined hops, every hop counts as billed. Nil without a fallback.
-func serverFallbackAttempts(iterations []anthropic.BetaIterationsUsageItemUnion, categories []string) []chat.UsageAttempt {
+// refusalEvidence binds wire-level category presence to the model that declined.
+type refusalEvidence struct {
+	from, to string
+	category respjson.Field
+}
+
+// serverFallbackAttempts aggregates server-tool iterations into model hops.
+// Unmatched refusal evidence never exempts a hop from billing.
+func serverFallbackAttempts(iterations []anthropic.BetaIterationsUsageItemUnion, refusals []refusalEvidence, requestedModel string, stopReason anthropic.BetaStopReason, terminal respjson.Field) []chat.UsageAttempt {
 	if !slices.ContainsFunc(iterations, func(it anthropic.BetaIterationsUsageItemUnion) bool { return it.Type == "fallback_message" }) {
 		return nil
 	}
-	declined := 0
-	for _, it := range iterations {
-		if it.Type == "message" {
-			declined++
-		}
-	}
-	knownCategories := declined == len(categories)
 	var attempts []chat.UsageAttempt
-	hop := 0
 	for _, it := range iterations {
 		if it.Type != "message" && it.Type != "fallback_message" {
 			continue
 		}
-		billed := true
-		if it.Type == "message" {
-			// An empty category isn't a known unbilled refusal: bill it.
-			if knownCategories && it.OutputTokens == 0 && categories[hop] != "" && !billedBeforeOutput[categories[hop]] {
-				billed = false
-			}
-			hop++
+		if len(attempts) == 0 || attempts[len(attempts)-1].Model != it.Model {
+			attempts = append(attempts, chat.UsageAttempt{Model: it.Model, Billed: true})
 		}
-		attempts = append(attempts, chat.UsageAttempt{
-			Model: it.Model, Billed: billed, Dispatched: len(attempts) == 0 && it.Type == "message",
-			InputTokens: it.InputTokens, OutputTokens: it.OutputTokens,
-			CachedInputTokens: it.CacheReadInputTokens, CacheWriteTokens: it.CacheCreationInputTokens,
-		})
+		hop := &attempts[len(attempts)-1]
+		hop.InputTokens += it.InputTokens
+		hop.OutputTokens += it.OutputTokens
+		hop.CachedInputTokens += it.CacheReadInputTokens
+		hop.CacheWriteTokens += it.CacheCreationInputTokens
+	}
+	requestedRan := len(refusals) > 0 && refusals[0].from == requestedModel
+	// On malformed chains only the prefix before any fallback target can use
+	// the requested model's pricing, regardless of iteration type or aliases.
+	for i := range attempts {
+		if slices.ContainsFunc(refusals, func(r refusalEvidence) bool { return r.to == attempts[i].Model }) {
+			break
+		}
+		attempts[i].Dispatched = requestedRan
+	}
+	if len(attempts) != len(refusals)+1 {
+		return attempts
+	}
+	for i, refusal := range refusals {
+		// The primary's from echoes the request alias; other marker IDs are canonical.
+		primaryAlias := i == 0 && requestedRan
+		if refusal.from == "" || refusal.to == "" || (!primaryAlias && refusal.from != attempts[i].Model) || refusal.to != attempts[i+1].Model {
+			return attempts
+		}
+	}
+	for i := range attempts {
+		attempts[i].Dispatched = requestedRan && i == 0
+	}
+
+	for i := range attempts {
+		var category respjson.Field
+		if i < len(refusals) {
+			category = refusals[i].category
+		} else if stopReason == "refusal" {
+			category = terminal
+		}
+		if attempts[i].OutputTokens == 0 && unbilledRefusalCategory(category) {
+			attempts[i].Billed = false
+		}
 	}
 	return attempts
+}
+
+func unbilledRefusalCategory(field respjson.Field) bool {
+	if field.Raw() == "null" {
+		return true
+	}
+	var category string
+	if !field.Valid() || json.Unmarshal([]byte(field.Raw()), &category) != nil || category == "" {
+		return false
+	}
+	return !billedBeforeOutput[category]
 }

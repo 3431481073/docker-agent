@@ -428,7 +428,7 @@ func TestServerFallbackAttempts(t *testing.T) {
 			}
 			assert.Equal(t, tc.want, got)
 			for i, a := range attempts {
-				assert.Equal(t, i == 0 && a.Model == from, a.Dispatched, "only the requested model's attempt is dispatched")
+				assert.Equal(t, name != "marker missing" && i == 0 && a.Model == from, a.Dispatched, "dispatch requires a marker echoing the requested model")
 			}
 		})
 	}

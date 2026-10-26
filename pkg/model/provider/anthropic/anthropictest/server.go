@@ -189,7 +189,7 @@ func fallbackBlock(index int, from, to, category string) []sse {
 	return []sse{
 		event("content_block_start", map[string]any{"index": index, "content_block": map[string]any{
 			"type": "fallback", "from": map[string]any{"model": from}, "to": map[string]any{"model": to},
-			"trigger": map[string]any{"type": "refusal", "category": category},
+			"trigger": map[string]any{"type": "refusal", "category": refusalCategory(category)},
 		}}),
 		event("content_block_stop", map[string]any{"index": index}),
 	}
@@ -245,4 +245,12 @@ func body(events ...sse) string {
 		fmt.Fprintf(&sb, "event: %s\ndata: %s\n\n", e.name, data)
 	}
 	return sb.String()
+}
+
+// The empty fixture category represents an explicit JSON null, not an omitted field.
+func refusalCategory(category string) any {
+	if category == "" {
+		return nil
+	}
+	return category
 }
