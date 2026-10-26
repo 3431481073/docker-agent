@@ -4,10 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"math"
-	"sync"
 	"time"
-
-	"golang.org/x/sync/singleflight"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/model/provider/dmr/dmrmodels"
@@ -19,75 +16,14 @@ import (
 // repeated opens while still picking up newly-pulled models eventually.
 const dmrModelsTTL = 1 * time.Minute
 
-// dmrModelsCache memoizes the result of DMR model discovery, including
-// failures, so an unreachable or absent Model Runner is not re-queried on
-// every picker open. The mutex only guards the cached fields; the lookup
-// itself runs outside the lock, coalesced by the singleflight group so
-// concurrent callers share one in-flight request.
-type dmrModelsCache struct {
-	mu        sync.Mutex
-	sf        singleflight.Group
-	models    []dmrmodels.Model
-	err       error
-	fetchedAt time.Time
-}
-
-// listDMRModels returns the models available to Docker Model Runner, using
-// the runtime's cache when fresh. It returns (nil, nil) when no lister is
-// configured (e.g. runtimes built directly in tests), so DMR discovery is
-// opt-in via NewLocalRuntime.
 func (r *Catalog) listDMRModels(ctx context.Context) ([]dmrmodels.Model, error) {
 	if r.ListDMR == nil {
-		slog.DebugContext(ctx, "DMR model discovery skipped; no lister configured")
 		return nil, nil
 	}
-
-	now := time.Now
-	if r.Now != nil {
-		now = r.Now
-	}
-
-	c := &r.dmrModels
-
-	readFresh := func() (ids []dmrmodels.Model, ok bool, err error) {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		if !c.fetchedAt.IsZero() && now().Sub(c.fetchedAt) < dmrModelsTTL {
-			return c.models, true, c.err
-		}
-		return nil, false, nil
-	}
-
-	if ids, ok, err := readFresh(); ok {
-		slog.DebugContext(ctx, "DMR model discovery cache hit", "models", len(ids), "error", err)
-		return ids, err
-	}
-
 	start := time.Now()
-	v, err, _ := c.sf.Do("models", func() (any, error) {
-		// Double-check the cache now that we hold the in-flight slot: a caller
-		// that read a stale cache right before a concurrent singleflight
-		// completed would otherwise trigger a redundant fetch.
-		if ids, ok, err := readFresh(); ok {
-			return ids, err
-		}
-
-		ids, err := r.ListDMR(ctx)
-		if err != nil && ctx.Err() != nil {
-			return ids, err
-		}
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.models, c.err, c.fetchedAt = ids, err, now()
-		return ids, err
-	})
-	if err != nil {
-		slog.DebugContext(ctx, "DMR model discovery fetch completed", "duration", time.Since(start), "error", err)
-		return nil, err
-	}
-	ids := v.([]dmrmodels.Model)
-	slog.DebugContext(ctx, "DMR model discovery fetch completed", "duration", time.Since(start), "models", len(ids))
-	return ids, nil
+	models, err := r.dmrModels.get(ctx, r.clock(), dmrModelsTTL, r.ListDMR)
+	slog.DebugContext(ctx, "DMR model discovery completed", "duration", time.Since(start), "models", len(models), "error", err)
+	return models, err
 }
 
 // buildDMRChoices builds ModelChoice entries for the models currently pulled

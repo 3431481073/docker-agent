@@ -195,8 +195,8 @@ type Catalog struct {
 	Store         Store
 	Now           func() time.Time
 	ListDMR       func(context.Context) ([]dmrmodels.Model, error)
-	gatewayModels gatewayModelsCache
-	dmrModels     dmrModelsCache
+	gatewayModels discoveryCache[[]string]
+	dmrModels     discoveryCache[[]dmrmodels.Model]
 }
 
 // AvailableModels returns configured and discovered choices for agentName.

@@ -3,10 +3,7 @@ package modelcatalog
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"time"
-
-	"golang.org/x/sync/singleflight"
 
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/modelsgateway"
@@ -18,70 +15,13 @@ import (
 // eventually.
 const gatewayModelsTTL = 5 * time.Minute
 
-// gatewayModelsCache memoizes the result of the gateway model discovery,
-// including failures, so an unsupported or slow gateway is not re-queried
-// on every picker open. The mutex only guards the cached fields; the
-// network fetch itself runs outside the lock, coalesced by the
-// singleflight group so concurrent callers share one in-flight request
-// instead of stalling on each other.
-type gatewayModelsCache struct {
-	mu        sync.Mutex
-	sf        singleflight.Group
-	ids       []string
-	err       error
-	fetchedAt time.Time
-}
-
-// listGatewayModels returns the model IDs served by the configured models
-// gateway, using the runtime's cache when fresh.
 func (r *Catalog) listGatewayModels(ctx context.Context) ([]string, error) {
-	now := time.Now
-	if r.Now != nil {
-		now = r.Now
-	}
-
-	c := &r.gatewayModels
-
-	readFresh := func() (ids []string, ok bool, err error) {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		if !c.fetchedAt.IsZero() && now().Sub(c.fetchedAt) < gatewayModelsTTL {
-			return c.ids, true, c.err
-		}
-		return nil, false, nil
-	}
-
-	if ids, ok, err := readFresh(); ok {
-		slog.DebugContext(ctx, "Gateway model discovery cache hit", "models", len(ids), "error", err)
-		return ids, err
-	}
-
 	start := time.Now()
-	v, err, _ := c.sf.Do("models", func() (any, error) {
-		// Double-check the cache now that we hold the in-flight slot: a
-		// caller that read a stale cache right before a concurrent
-		// singleflight completed would otherwise trigger a redundant
-		// fetch immediately after the cache was populated.
-		if ids, ok, err := readFresh(); ok {
-			return ids, err
-		}
-
-		ids, err := modelsgateway.ListModels(ctx, r.Config.ModelsGateway, r.Config.EnvProvider)
-		if err != nil && ctx.Err() != nil {
-			return ids, err
-		}
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.ids, c.err, c.fetchedAt = ids, err, now()
-		return ids, err
+	models, err := r.gatewayModels.get(ctx, r.clock(), gatewayModelsTTL, func(ctx context.Context) ([]string, error) {
+		return modelsgateway.ListModels(ctx, r.Config.ModelsGateway, r.Config.EnvProvider)
 	})
-	if err != nil {
-		slog.DebugContext(ctx, "Gateway model discovery fetch completed", "duration", time.Since(start), "error", err)
-		return nil, err
-	}
-	ids := v.([]string)
-	slog.DebugContext(ctx, "Gateway model discovery fetch completed", "duration", time.Since(start), "models", len(ids))
-	return ids, nil
+	slog.DebugContext(ctx, "Gateway model discovery completed", "duration", time.Since(start), "models", len(models), "error", err)
+	return models, err
 }
 
 // buildGatewayChoices builds ModelChoice entries from the models served by
