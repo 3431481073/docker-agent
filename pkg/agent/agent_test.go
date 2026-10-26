@@ -383,6 +383,22 @@ func TestModelOverride(t *testing.T) {
 	assert.Equal(t, "openai/gpt-4o", a.Model(t.Context()).ID().String())
 }
 
+func TestSetHarnessEffort(t *testing.T) {
+	t.Parallel()
+
+	configured := &latest.HarnessConfig{Type: "claude-code", Model: "opus", Effort: "low"}
+	a := New("root", "test", WithHarness(configured))
+	assert.Equal(t, "low", a.Harness().Effort)
+
+	a.SetHarnessEffort("max")
+	assert.Equal(t, latest.HarnessConfig{Type: "claude-code", Model: "opus", Effort: "max"}, *a.Harness())
+	assert.Equal(t, "low", configured.Effort, "the configured harness is left untouched")
+
+	native := New("native", "test")
+	native.SetHarnessEffort("max")
+	assert.Nil(t, native.Harness(), "an effort override does not make an agent harness-backed")
+}
+
 func TestSetModelOverride_ReturnsSnapshotOfStoredValue(t *testing.T) {
 	// SetModelOverride must return a snapshot of the value it just stored,
 	// not what a subsequent SnapshotModelOverride() would load. This is the

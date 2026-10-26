@@ -1159,11 +1159,15 @@ func (r *LocalRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string, 
 
 // TitleGenerator returns a title generator for automatic session title
 // generation, or nil when no configured model is a usable title candidate
-// (see [sessiontitle.New]).
+// (see [sessiontitle.New]). A harness agent has no models: its driver titles
+// the session when it implements [harness.Completer].
 func (r *LocalRuntime) TitleGenerator(ctx context.Context) *sessiontitle.Generator {
 	a := r.CurrentAgent()
 	if a == nil {
 		return nil
+	}
+	if a.HasHarness() {
+		return r.harnessTitleGenerator(a)
 	}
 	return sessiontitle.New(a.TitleModels(ctx)...)
 }
@@ -1240,8 +1244,11 @@ func (r *LocalRuntime) agentDetailsFromTeam(ctx context.Context) []AgentDetails 
 // "high"), "adaptive" for adaptive budgets, the decimal token count for
 // token-based budgets, "off" when thinking is disabled on a reasoning-capable
 // model, or "" when the model has no selectable thinking configuration to
-// display.
+// display. A harness agent shows its effort, "adaptive" while its CLI picks it.
 func (r *LocalRuntime) agentThinkingLabel(ctx context.Context, a *agent.Agent) string {
+	if a.HasHarness() {
+		return harnessThinkingLabel(a.Harness())
+	}
 	models := a.EffectiveModels()
 	if len(models) == 0 {
 		return ""

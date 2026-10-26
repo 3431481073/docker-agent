@@ -455,6 +455,71 @@ func TestCurrentAgentThinkingLevels(t *testing.T) {
 	})
 }
 
+func newHarnessThinkingRuntime(cfg *latest.HarnessConfig) (*LocalRuntime, *agent.Agent) {
+	root := agent.New("root", "test", agent.WithHarness(cfg))
+	tm := team.New(team.WithAgents(root))
+	return &LocalRuntime{team: tm, agents: newAgentRouter(tm, "root"), modelSwitcherCfg: &modelcatalog.Config{}}, root
+}
+
+// A Claude Code harness agent has no models, but its effort reaches the CLI's
+// --effort flag: /effort and Shift+Tab switch it like a model's level.
+func TestHarnessAgentThinkingLevels(t *testing.T) {
+	t.Parallel()
+
+	allEfforts := []effort.Level{effort.Low, effort.Medium, effort.High, effort.XHigh, effort.Max}
+
+	t.Run("unset effort shows adaptive and cycling starts at low", func(t *testing.T) {
+		t.Parallel()
+		r, root := newHarnessThinkingRuntime(&latest.HarnessConfig{Type: "claude-code"})
+
+		assert.Equal(t, allEfforts, r.CurrentAgentThinkingLevels(t.Context()))
+		assert.Equal(t, "adaptive", r.agentThinkingLabel(t.Context(), root))
+
+		level, err := r.CycleAgentThinkingLevel(t.Context(), "root")
+		require.NoError(t, err)
+		assert.Equal(t, effort.Low, level)
+		level, err = r.CycleAgentThinkingLevel(t.Context(), "root")
+		require.NoError(t, err)
+		assert.Equal(t, effort.Medium, level)
+		assert.Equal(t, "medium", root.Harness().Effort)
+		assert.Equal(t, "medium", r.agentThinkingLabel(t.Context(), root))
+	})
+
+	t.Run("configured effort cycles from its level and wraps", func(t *testing.T) {
+		t.Parallel()
+		r, root := newHarnessThinkingRuntime(&latest.HarnessConfig{Type: "command-code", Effort: "max"})
+		assert.Equal(t, "max", r.agentThinkingLabel(t.Context(), root))
+
+		level, err := r.CycleAgentThinkingLevel(t.Context(), "root")
+		require.NoError(t, err)
+		assert.Equal(t, effort.Low, level)
+	})
+
+	t.Run("set accepts the CLI efforts only", func(t *testing.T) {
+		t.Parallel()
+		r, root := newHarnessThinkingRuntime(&latest.HarnessConfig{Type: "claude-code", Model: "opus", Effort: "low"})
+
+		level, err := r.SetAgentThinkingLevel(t.Context(), "root", effort.XHigh)
+		require.NoError(t, err)
+		assert.Equal(t, effort.XHigh, level)
+		assert.Equal(t, latest.HarnessConfig{Type: "claude-code", Model: "opus", Effort: "xhigh"}, *root.Harness())
+
+		_, err = r.SetAgentThinkingLevel(t.Context(), "root", effort.None)
+		require.ErrorContains(t, err, "not supported")
+		assert.Equal(t, "xhigh", root.Harness().Effort)
+	})
+
+	t.Run("harness without an effort flag is unsupported", func(t *testing.T) {
+		t.Parallel()
+		r, root := newHarnessThinkingRuntime(&latest.HarnessConfig{Type: "codex"})
+
+		_, err := r.CycleAgentThinkingLevel(t.Context(), "root")
+		require.ErrorIs(t, err, ErrUnsupported)
+		assert.Nil(t, r.CurrentAgentThinkingLevels(t.Context()))
+		assert.Empty(t, r.agentThinkingLabel(t.Context(), root))
+	})
+}
+
 // TestSetAgentThinkingLevel_NoneSurvivesOnGPT56 is the regression test for
 // the gpt-5.6+ "none" gating: cycling an agent's model to None on a model
 // with a real API-level none effort must produce a provider whose config

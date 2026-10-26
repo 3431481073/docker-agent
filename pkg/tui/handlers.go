@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker-agent/pkg/evaluation"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/inspection"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/shellpath"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -752,6 +753,11 @@ func (m *appModel) openEffortPicker() (tea.Model, tea.Cmd) {
 		return m, notification.InfoCmd("Current model does not support thinking levels")
 	}
 	levels := modelinfo.SupportedThinkingLevels(agent.Provider, agent.Model)
+	if caps := agent.ExecutionCapabilities; caps != nil && caps.Mode == inspection.ExecutionModeHarness {
+		// A harness has no provider/model to derive levels from; the runtime
+		// resolves its CLI's effort levels locally.
+		levels = m.application.CurrentAgentThinkingLevels(m.ctx())
+	}
 	// "off" maps onto none; adaptive/token labels leave no level marked current.
 	current, ok := effort.Parse(agent.Thinking)
 	if !ok && agent.Thinking == "off" {

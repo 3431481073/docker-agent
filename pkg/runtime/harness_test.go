@@ -15,9 +15,11 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/codingharness"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/harness"
 	"github.com/docker/docker-agent/pkg/js"
 	"github.com/docker/docker-agent/pkg/paths"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/session/sqlitestore"
 	"github.com/docker/docker-agent/pkg/team"
@@ -393,6 +395,50 @@ func TestHarnessSuppressesReplayedClaudeCodeFinalText(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"Hello", " world"}, chunks)
+}
+
+// A harness agent has no models to title its session with: Claude Code's
+// driver answers the title prompt itself.
+func TestHarnessAgentTitleGeneratedThroughClaudeCode(t *testing.T) {
+	if stdruntime.GOOS == "windows" {
+		t.Skip("shell script shim test")
+	}
+
+	useHarnessShim(t, "claude", `{"type":"result","subtype":"success","is_error":false,"result":"Fix the login bug"}`)
+
+	gen := newHarnessRuntime(t, "claude-code").TitleGenerator(t.Context())
+	require.NotNil(t, gen)
+	title, err := gen.Generate(t.Context(), "sess-1", []string{"the login form rejects valid passwords"})
+	require.NoError(t, err)
+	assert.Equal(t, "Fix the login bug", title)
+
+	args, err := os.ReadFile(filepath.Join(harnessBinDir, "claude.args"))
+	require.NoError(t, err)
+	assert.Contains(t, string(args), "--no-session-persistence")
+	assert.NotContains(t, string(args), "--dangerously-skip-permissions")
+
+	assert.Nil(t, newHarnessRuntime(t, "codex").TitleGenerator(t.Context()), "the codex driver cannot answer one-shot prompts")
+}
+
+func TestHarnessAgentTurnUsesEffortOverride(t *testing.T) {
+	if stdruntime.GOOS == "windows" {
+		t.Skip("shell script shim test")
+	}
+
+	useHarnessShim(t, "claude", `{"type":"result","result":"done"}`+"\n")
+	root := agent.New("root", "", agent.WithHarness(&latest.HarnessConfig{Type: "claude-code", Effort: "low"}))
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)), WithSessionCompaction(false), WithModelStore(mockModelStore{}),
+		WithModelSwitcherConfig(&modelcatalog.Config{}))
+	require.NoError(t, err)
+
+	_, err = rt.SetAgentThinkingLevel(t.Context(), "root", effort.Max)
+	require.NoError(t, err)
+	collectRuntimeEvents(t, rt, session.New(session.WithUserMessage("do the task")))
+
+	args, err := os.ReadFile(filepath.Join(harnessBinDir, "claude.args"))
+	require.NoError(t, err)
+	assert.Contains(t, string(args), "--effort\nmax\n")
+	assert.NotContains(t, string(args), "--effort\nlow\n")
 }
 
 func newHarnessRuntime(t *testing.T, harnessType string) *LocalRuntime {
