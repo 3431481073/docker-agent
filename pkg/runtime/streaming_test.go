@@ -216,6 +216,43 @@ func TestHandleStream_ToolCallThenSeparateStop(t *testing.T) {
 	assert.False(t, res.Stopped)
 }
 
+// TestHandleStream_ContentInTerminalChunk covers providers that send the last
+// text delta in the same chunk as the terminal finish_reason: that text must
+// end up in the result and in the live events instead of being dropped.
+func TestHandleStream_ContentInTerminalChunk(t *testing.T) {
+	t.Parallel()
+
+	for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength} {
+		t.Run(string(reason), func(t *testing.T) {
+			t.Parallel()
+
+			b := newStreamBuilder().
+				AddReasoning("thinking ").
+				AddContent("M").
+				AddContent("1-deepseek-v4")
+			b.responses = append(b.responses, chat.MessageStreamResponse{
+				Choices: []chat.MessageStreamChoice{{
+					Index:        0,
+					FinishReason: reason,
+					Delta: chat.MessageDelta{
+						Content:          ".1-flash",
+						ReasoningContent: "done",
+					},
+				}},
+				Usage: &chat.Usage{InputTokens: 1, OutputTokens: 1},
+			})
+
+			res, live := runMarkerStream(t, b.Build())
+
+			assert.Equal(t, "M1-deepseek-v4.1-flash", res.Content)
+			assert.Equal(t, res.Content, live)
+			assert.Equal(t, "thinking done", res.ReasoningContent)
+			assert.Equal(t, reason, res.FinishReason)
+			assert.True(t, res.Stopped)
+		})
+	}
+}
+
 // TestHandleStream_MediaAccumulatesAlongsideText verifies that a
 // generated-media delta streamed alongside text is accumulated into
 // streamResult.Media without disturbing the existing text/finish-reason
