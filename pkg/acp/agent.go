@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
 	"github.com/docker/docker-agent/pkg/teamloader"
@@ -420,7 +421,7 @@ func (a *Agent) newRuntime(ctx context.Context, sessionID, workingDir string, se
 	acpSess.configEnabled = true
 	acpSess.configModels = loadResult.Models
 	acpSess.configProviders = loadResult.Providers
-	switcher := &runtime.ModelSwitcherConfig{
+	switcher := &modelcatalog.Config{
 		Models: loadResult.Models, Providers: loadResult.Providers, ProviderRegistry: loadResult.ProviderRegistry,
 		AgentDefaultModels: loadResult.AgentDefaultModels, ModelsGateway: rc.ModelsGateway,
 		EncryptedConfig: loadResult.EncryptedConfig, EnvProvider: rc.EnvProvider(),

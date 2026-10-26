@@ -1,4 +1,4 @@
-package runtime
+package modelcatalog
 
 import (
 	"context"
@@ -18,21 +18,21 @@ import (
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
-// stubModelStore is a ModelStore backed by in-memory data, used to verify
+// stubStore is a Store backed by in-memory data, used to verify
 // which of the gateway / catalog code paths populated the picker.
-type stubModelStore struct {
+type stubStore struct {
 	db     *modelsdev.Database
 	models map[string]*modelsdev.Model
 }
 
-func (s stubModelStore) GetModel(_ context.Context, id modelsdev.ID) (*modelsdev.Model, error) {
+func (s stubStore) GetModel(_ context.Context, id modelsdev.ID) (*modelsdev.Model, error) {
 	if m, ok := s.models[id.String()]; ok {
 		return m, nil
 	}
 	return nil, errors.New("model not found")
 }
 
-func (s stubModelStore) GetDatabase(context.Context) (*modelsdev.Database, error) {
+func (s stubStore) GetDatabase(context.Context) (*modelsdev.Database, error) {
 	if s.db == nil {
 		return nil, errors.New("no database")
 	}
@@ -43,10 +43,10 @@ func (s stubModelStore) GetDatabase(context.Context) (*modelsdev.Database, error
 // a Docker token available (httptest servers are localhost, hence trusted).
 // A direct OpenAI credential is also set: the catalog fallback taken when
 // gateway discovery fails is credential-based, not gateway-based.
-func gatewayRuntime(gatewayURL string, store ModelStore) *LocalRuntime {
-	return &LocalRuntime{
-		modelsStore: store,
-		modelSwitcherCfg: &ModelSwitcherConfig{
+func gatewayRuntime(gatewayURL string, store Store) *Catalog {
+	return &Catalog{
+		Store: store,
+		Config: &Config{
 			ModelsGateway: gatewayURL,
 			EnvProvider: environment.NewMapEnvProvider(map[string]string{
 				environment.DockerDesktopTokenEnv: "test-token",
@@ -97,9 +97,9 @@ func TestAvailableModels_GatewayDiscovery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{db: catalogDB()})
+	r := gatewayRuntime(server.URL, stubStore{db: catalogDB()})
 
-	choices := r.AvailableModels(t.Context())
+	choices := r.AvailableModels(t.Context(), "")
 	got := refs(choices)
 
 	assert.Contains(t, got, "root_model", "configured models must always be listed")
@@ -124,7 +124,7 @@ func TestAvailableModels_GatewayDiscoveryMetadata(t *testing.T) {
 	}))
 	defer server.Close()
 
-	store := stubModelStore{models: map[string]*modelsdev.Model{
+	store := stubStore{models: map[string]*modelsdev.Model{
 		"openai/gpt-4o": {
 			Name:  "GPT-4o",
 			Cost:  &modelsdev.Cost{Input: 2.5, Output: 10},
@@ -133,7 +133,7 @@ func TestAvailableModels_GatewayDiscoveryMetadata(t *testing.T) {
 	}}
 	r := gatewayRuntime(server.URL, store)
 
-	choices := r.AvailableModels(t.Context())
+	choices := r.AvailableModels(t.Context(), "")
 
 	var found *ModelChoice
 	for i := range choices {
@@ -155,9 +155,9 @@ func TestAvailableModels_GatewayUnsupportedFallsBackToCatalog(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{db: catalogDB()})
+	r := gatewayRuntime(server.URL, stubStore{db: catalogDB()})
 
-	got := refs(r.AvailableModels(t.Context()))
+	got := refs(r.AvailableModels(t.Context(), ""))
 
 	assert.Contains(t, got, "root_model")
 	assert.Contains(t, got, "openai/catalog-only-model", "catalog must be used when the gateway doesn't support /v1/models")
@@ -171,9 +171,9 @@ func TestAvailableModels_GatewayEmptyListFallsBackToCatalog(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{db: catalogDB()})
+	r := gatewayRuntime(server.URL, stubStore{db: catalogDB()})
 
-	got := refs(r.AvailableModels(t.Context()))
+	got := refs(r.AvailableModels(t.Context(), ""))
 
 	assert.Contains(t, got, "openai/catalog-only-model")
 }
@@ -188,10 +188,10 @@ func TestListGatewayModels_CachesResult(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{})
+	r := gatewayRuntime(server.URL, stubStore{})
 
-	_ = r.AvailableModels(t.Context())
-	_ = r.AvailableModels(t.Context())
+	_ = r.AvailableModels(t.Context(), "")
+	_ = r.AvailableModels(t.Context(), "")
 
 	assert.Equal(t, int32(1), requests.Load(), "gateway must be queried once within the cache TTL")
 }
@@ -207,8 +207,8 @@ func TestListGatewayModels_CacheExpires(t *testing.T) {
 	defer server.Close()
 
 	now := time.Now()
-	r := gatewayRuntime(server.URL, stubModelStore{})
-	r.now = func() time.Time { return now }
+	r := gatewayRuntime(server.URL, stubStore{})
+	r.Now = func() time.Time { return now }
 
 	_, err := r.listGatewayModels(t.Context())
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestListGatewayModels_CachesFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{})
+	r := gatewayRuntime(server.URL, stubStore{})
 
 	_, err := r.listGatewayModels(t.Context())
 	require.Error(t, err)
@@ -250,7 +250,7 @@ func TestListGatewayModels_DoesNotCacheCallerCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{})
+	r := gatewayRuntime(server.URL, stubStore{})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -274,8 +274,8 @@ func TestListGatewayModels_DoubleCheckAvoidsRedundantFetch(t *testing.T) {
 	defer server.Close()
 
 	now := time.Now()
-	r := gatewayRuntime(server.URL, stubModelStore{})
-	r.now = func() time.Time { return now }
+	r := gatewayRuntime(server.URL, stubStore{})
+	r.Now = func() time.Time { return now }
 
 	_, err := r.listGatewayModels(t.Context())
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestListGatewayModels_DoubleCheckAvoidsRedundantFetch(t *testing.T) {
 	// the double-check inside the closure, which must return the cached
 	// result instead of re-fetching.
 	staleReads := 1
-	r.now = func() time.Time {
+	r.Now = func() time.Time {
 		if staleReads > 0 {
 			staleReads--
 			return now.Add(gatewayModelsTTL + time.Second)
@@ -314,7 +314,7 @@ func TestListGatewayModels_ConcurrentCallersCoalesce(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := gatewayRuntime(server.URL, stubModelStore{})
+	r := gatewayRuntime(server.URL, stubStore{})
 
 	const callers = 8
 	var wg sync.WaitGroup
@@ -355,12 +355,12 @@ func TestAvailableModels_GatewayEmbeddingFilteredByCatalogFamily(t *testing.T) {
 
 	// The model ID contains no "embed" substring; only the catalog
 	// Family identifies it as an embedding model.
-	store := stubModelStore{models: map[string]*modelsdev.Model{
+	store := stubStore{models: map[string]*modelsdev.Model{
 		"openai/some-vector-model": {Name: "Vector", Family: "text-embedding"},
 	}}
 	r := gatewayRuntime(server.URL, store)
 
-	got := refs(r.AvailableModels(t.Context()))
+	got := refs(r.AvailableModels(t.Context(), ""))
 
 	assert.NotContains(t, got, "openai/some-vector-model", "embedding models identified by catalog family must be filtered")
 	assert.Contains(t, got, "openai/gpt-4o")
@@ -376,12 +376,12 @@ func TestAvailableModels_GatewayNonTextFilteredByCatalogModalities(t *testing.T)
 
 	// The catalog declares image-only output for image-gen, so it is not a
 	// chat model. gpt-4o has no catalog entry and must be kept (no signal).
-	store := stubModelStore{models: map[string]*modelsdev.Model{
+	store := stubStore{models: map[string]*modelsdev.Model{
 		"openai/image-gen": {Name: "Image Gen", Modalities: modelsdev.Modalities{Output: []string{"image"}}},
 	}}
 	r := gatewayRuntime(server.URL, store)
 
-	got := refs(r.AvailableModels(t.Context()))
+	got := refs(r.AvailableModels(t.Context(), ""))
 
 	assert.NotContains(t, got, "openai/image-gen", "models whose catalog metadata declares non-text output must be filtered")
 	assert.Contains(t, got, "openai/gpt-4o")

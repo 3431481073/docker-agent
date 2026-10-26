@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/team"
@@ -1696,7 +1697,7 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 		authorSafetyDefault = session.SafetyPolicy(t.RuntimeSafety())
 	}
 
-	modelSwitcherCfg := &runtime.ModelSwitcherConfig{
+	modelSwitcherCfg := &modelcatalog.Config{
 		Models:             loadResult.Models,
 		Providers:          loadResult.Providers,
 		ModelsGateway:      rc.ModelsGateway,
@@ -2152,7 +2153,7 @@ var ErrSessionNotRunning = errors.New("session not found or not running")
 // override points at an inline provider/model not present in the agent
 // config, a synthetic choice is appended (mirrors App.AvailableModels via
 // the shared runtime.DecorateModelChoices helper).
-func (sm *SessionManager) AvailableSessionModels(ctx context.Context, sessionID string) (string, string, []runtime.ModelChoice, error) {
+func (sm *SessionManager) AvailableSessionModels(ctx context.Context, sessionID string) (string, string, []modelcatalog.ModelChoice, error) {
 	rs, ok := sm.runtimeSessions.Load(sessionID)
 	if !ok {
 		return "", "", nil, ErrSessionNotRunning
@@ -2179,7 +2180,7 @@ func (sm *SessionManager) AvailableSessionModels(ctx context.Context, sessionID 
 	}
 	rs.modelSwitch.Unlock()
 
-	choices := runtime.DecorateModelChoices(rs.runtime.AvailableModels(ctx), current, customRefs)
+	choices := modelcatalog.DecorateModelChoices(rs.runtime.AvailableModels(ctx), current, customRefs)
 	return agentName, current, choices, nil
 }
 

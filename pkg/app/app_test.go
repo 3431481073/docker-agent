@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -107,11 +108,11 @@ func (m *mockRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.L
 func (m *mockRuntime) SetAgentThinkingLevel(context.Context, string, effort.Level) (effort.Level, error) {
 	return "", runtime.ErrUnsupported
 }
-func (m *mockRuntime) AvailableModels(context.Context) []runtime.ModelChoice { return nil }
-func (m *mockRuntime) SupportsModelSwitching() bool                          { return false }
-func (m *mockRuntime) OnToolsChanged(func(runtime.Event))                    {}
-func (m *mockRuntime) OnBackgroundEvent(func(runtime.Event))                 {}
-func (m *mockRuntime) OnElicitationRequest(func(runtime.Event))              {}
+func (m *mockRuntime) AvailableModels(context.Context) []modelcatalog.ModelChoice { return nil }
+func (m *mockRuntime) SupportsModelSwitching() bool                               { return false }
+func (m *mockRuntime) OnToolsChanged(func(runtime.Event))                         {}
+func (m *mockRuntime) OnBackgroundEvent(func(runtime.Event))                      {}
+func (m *mockRuntime) OnElicitationRequest(func(runtime.Event))                   {}
 
 // Verify mockRuntime implements runtime.Runtime
 var _ runtime.Runtime = (*mockRuntime)(nil)

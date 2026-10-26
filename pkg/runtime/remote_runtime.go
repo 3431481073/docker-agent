@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/effort"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/team"
@@ -850,15 +851,15 @@ func (r *RemoteRuntime) SessionStore() session.Store {
 }
 
 // AvailableModels returns available models for the agent.
-func (r *RemoteRuntime) AvailableModels(ctx context.Context) []ModelChoice {
+func (r *RemoteRuntime) AvailableModels(ctx context.Context) []modelcatalog.ModelChoice {
 	models, err := r.client.GetAvailableModels(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "Failed to get available models", "error", err)
 		return nil
 	}
-	choices := make([]ModelChoice, len(models))
+	choices := make([]modelcatalog.ModelChoice, len(models))
 	for i, m := range models {
-		choices[i] = ModelChoice{Name: m, Ref: m}
+		choices[i] = modelcatalog.ModelChoice{Name: m, Ref: m}
 	}
 	return choices
 }

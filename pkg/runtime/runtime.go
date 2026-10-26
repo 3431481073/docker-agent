@@ -31,6 +31,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/dmr/dmrmodels"
 	"github.com/docker/docker-agent/pkg/modelsdev"
+	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/team"
@@ -173,7 +174,7 @@ type Runtime interface {
 	// AvailableModels returns the models the user can pick from in the
 	// /model picker. Returns nil for runtimes that don't expose model
 	// switching; see SupportsModelSwitching for a cheap pre-check.
-	AvailableModels(ctx context.Context) []ModelChoice
+	AvailableModels(ctx context.Context) []modelcatalog.ModelChoice
 
 	// SupportsModelSwitching reports whether SetAgentModel and
 	// AvailableModels are wired for this runtime. Use it to gate UI
@@ -273,10 +274,10 @@ type LocalRuntime struct {
 	generatedFiles   generatedFileCache
 	workingDir       string   // Working directory for hooks execution
 	env              []string // Environment variables for hooks execution
-	modelSwitcherCfg *ModelSwitcherConfig
+	modelSwitcherCfg *modelcatalog.Config
 	providerRegistry *provider.Registry
-	gatewayModels    gatewayModelsCache
-	dmrModels        dmrModelsCache
+	catalogOnce      sync.Once
+	modelCatalog     *modelcatalog.Catalog
 	modelContexts    modelContextCache
 
 	// hooksRegistry is the runtime-private hooks.Registry used to build
