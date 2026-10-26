@@ -1,4 +1,4 @@
-package runtime
+package artifacts
 
 import (
 	"path"
@@ -86,7 +86,7 @@ var comparativeCueRE = regexp.MustCompile(
 	`(?i)\b(?:same|style|similar|like|such|as|with|in|exact|identical|matching|equivalent)\b`,
 )
 
-// extractExplicitOutputFilename returns the single unambiguous explicit
+// ExtractExplicitOutputFilename returns the single unambiguous explicit
 // output filename in the triggering user prompt, if there is exactly one.
 // Candidates that fail validation (unknown extension, control characters,
 // invalid UTF-8, over-long, extension-only, comparative of-phrase) are
@@ -96,7 +96,7 @@ var comparativeCueRE = regexp.MustCompile(
 // the filename capture's position — the same occurrence matched by both
 // grammars counts once, while distinct occurrences (even of the same
 // name) stay ambiguous and yield no extraction.
-func extractExplicitOutputFilename(prompt string) (string, bool) {
+func ExtractExplicitOutputFilename(prompt string) (string, bool) {
 	candidates := make(map[int]string)
 	for _, m := range explicitOutputFilenameRE.FindAllStringSubmatchIndex(prompt, -1) {
 		if offset, name := firstMatchedGroup(prompt, m, 1); isExplicitImageFilename(name) {
@@ -158,16 +158,16 @@ func isExplicitImageFilename(name string) bool {
 	return len(path.Base(name)) > len(path.Ext(name))
 }
 
-// applyUserPromptRequestedPath fills RequestedPath from the triggering user
+// ApplyUserPromptRequestedPath fills RequestedPath from the triggering user
 // prompt for a turn that returned exactly ONE media blob that marker pairing
 // left unnamed. Markers keep precedence (a non-empty RequestedPath is never
 // overwritten) and multi-blob turns are skipped entirely — a single prompt
 // filename cannot unambiguously name one blob among several.
-func applyUserPromptRequestedPath(media []chat.MediaDelta, prompt string) {
+func ApplyUserPromptRequestedPath(media []chat.MediaDelta, prompt string) {
 	if len(media) != 1 || media[0].RequestedPath != "" {
 		return
 	}
-	if name, ok := extractExplicitOutputFilename(prompt); ok {
+	if name, ok := ExtractExplicitOutputFilename(prompt); ok {
 		media[0].RequestedPath = name
 	}
 }

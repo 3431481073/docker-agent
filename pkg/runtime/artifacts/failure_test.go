@@ -1,4 +1,4 @@
-package runtime
+package artifacts
 
 import (
 	"errors"
@@ -64,14 +64,14 @@ func TestMediaSaveFailureReason(t *testing.T) {
 		{
 			name: "unclassified error",
 			err:  errors.New("write " + secretRoot + "/tmp-1: device timeout for " + sessionID),
-			want: retryWithDebugAdvice,
+			want: RetryWithDebugAdvice,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := mediaSaveFailureReason(tc.err)
+			got := SaveFailureReason(tc.err)
 			assert.Equal(t, tc.want, got)
 			assert.NotContains(t, got, secretRoot, "the reason must never echo a path from the error")
 			assert.NotContains(t, got, sessionID, "the reason must never echo a session ID from the error")

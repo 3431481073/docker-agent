@@ -1,4 +1,4 @@
-package runtime
+package artifacts
 
 import (
 	"errors"
@@ -22,48 +22,48 @@ type generatedMediaItem struct {
 	index, total  int
 }
 
-func (r *LocalRuntime) writeGeneratedMedia(item generatedMediaItem, events EventSink) (workspacemedia.Result, error) {
+func (r *Service) writeGeneratedMedia(item generatedMediaItem, warn func(string)) (workspacemedia.Result, error) {
 	if item.requestedPath == "" {
 		return r.writeProviderNamedMedia(item)
 	}
 
 	class, cleaned := workspacemedia.ClassifyRequestedPath(item.requestedPath)
 	if class == workspacemedia.PathWorkspaceRelative {
-		res, err := workspacemediaWrite(item.workspaceRoot, cleaned, item.data, item.mimeType)
+		res, err := r.Write(item.workspaceRoot, cleaned, item.data, item.mimeType)
 		if err == nil || !errors.Is(err, workspacemedia.ErrPathEscape) {
 			return res, err
 		}
 	}
-	return r.redirectEscapedMedia(item, events)
+	return r.redirectEscapedMedia(item, warn)
 }
 
-func (r *LocalRuntime) writeProviderNamedMedia(item generatedMediaItem) (workspacemedia.Result, error) {
+func (r *Service) writeProviderNamedMedia(item generatedMediaItem) (workspacemedia.Result, error) {
 	requested := item.providerName
 	if requested == "" {
 		requested = item.genericName
 	}
-	res, err := workspacemediaWrite(item.workspaceRoot, requested, item.data, item.mimeType)
+	res, err := r.Write(item.workspaceRoot, requested, item.data, item.mimeType)
 	if err != nil && requested != item.genericName && errors.Is(err, workspacemedia.ErrPathEscape) {
-		res, err = workspacemediaWrite(item.workspaceRoot, item.genericName, item.data, item.mimeType)
+		res, err = r.Write(item.workspaceRoot, item.genericName, item.data, item.mimeType)
 	}
 	return res, err
 }
 
-func (r *LocalRuntime) redirectEscapedMedia(item generatedMediaItem, events EventSink) (workspacemedia.Result, error) {
+func (r *Service) redirectEscapedMedia(item generatedMediaItem, warn func(string)) (workspacemedia.Result, error) {
 	base := workspacemedia.RequestedBasename(item.requestedPath)
 	if base == "" {
 		base = item.genericName
 	}
-	res, err := workspacemediaWrite(item.workspaceRoot, base, item.data, item.mimeType)
+	res, err := r.Write(item.workspaceRoot, base, item.data, item.mimeType)
 	if err != nil && base != item.genericName && errors.Is(err, workspacemedia.ErrPathEscape) {
-		res, err = workspacemediaWrite(item.workspaceRoot, item.genericName, item.data, item.mimeType)
+		res, err = r.Write(item.workspaceRoot, item.genericName, item.data, item.mimeType)
 	}
 	if err != nil {
 		return workspacemedia.Result{}, err
 	}
-	if events != nil {
+	if warn != nil {
 		warning := fmt.Sprintf("Requested save location for generated media item %d/%d is outside the workspace or unusable; saved as %s in the workspace instead", item.index, item.total, res.RelPath)
-		events.Emit(Warning(chat.TruncateUTF8Bytes(warning, maxPlaceholderOrWarningBytes), item.agentName))
+		warn(chat.TruncateUTF8Bytes(warning, MaxWarningBytes))
 	}
 	return res, nil
 }

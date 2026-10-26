@@ -31,6 +31,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/dmr/dmrmodels"
 	"github.com/docker/docker-agent/pkg/modelsdev"
+	"github.com/docker/docker-agent/pkg/runtime/artifacts"
 	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
@@ -271,7 +272,8 @@ type LocalRuntime struct {
 	// generatedFiles caches per-owner-session workspace roots and manifest
 	// records for [LocalRuntime.ResolveGeneratedFile]. Seeded by
 	// materialization, filled lazily for restored sessions.
-	generatedFiles   generatedFileCache
+	artifactsOnce    sync.Once
+	artifactService  *artifacts.Service
 	workingDir       string   // Working directory for hooks execution
 	env              []string // Environment variables for hooks execution
 	modelSwitcherCfg *modelcatalog.Config

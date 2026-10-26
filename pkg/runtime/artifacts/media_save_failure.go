@@ -1,4 +1,4 @@
-package runtime
+package artifacts
 
 import (
 	"errors"
@@ -9,17 +9,17 @@ import (
 	"github.com/docker/docker-agent/pkg/workspacemedia"
 )
 
-// retryWithDebugAdvice is the user-facing fallback for a generated-media
+// RetryWithDebugAdvice is the user-facing fallback for a generated-media
 // save failure with no safe classified reason: it tells the user how to
 // capture the technical details instead of leaking any of them.
-const retryWithDebugAdvice = "Enable --debug and retry to capture technical details."
+const RetryWithDebugAdvice = "Enable --debug and retry to capture technical details."
 
-// mediaSaveFailureReason maps a generated-media save failure to a fixed,
+// SaveFailureReason maps a generated-media save failure to a fixed,
 // user-safe sentence for the runtime WarningEvent. Every return value is a
 // constant: nothing from err — which may embed the absolute workspace
 // root, a requested path, a session ID, or raw OS error text — ever
 // reaches the warning. The detailed error belongs in the debug log only.
-func mediaSaveFailureReason(err error) string {
+func SaveFailureReason(err error) string {
 	switch {
 	case errors.Is(err, session.ErrWorkingDirUnavailable):
 		return "No session workspace is available to save into."
@@ -32,6 +32,6 @@ func mediaSaveFailureReason(err error) string {
 	case errors.Is(err, fs.ErrNotExist):
 		return "The save location no longer exists."
 	default:
-		return retryWithDebugAdvice
+		return RetryWithDebugAdvice
 	}
 }
