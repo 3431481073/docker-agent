@@ -1244,8 +1244,11 @@ func (r *LocalRuntime) agentDetailsFromTeam(ctx context.Context) []AgentDetails 
 // "high"), "adaptive" for adaptive budgets, the decimal token count for
 // token-based budgets, "off" when thinking is disabled on a reasoning-capable
 // model, or "" when the model has no selectable thinking configuration to
-// display.
+// display. A harness agent shows its effort, "adaptive" while its CLI picks it.
 func (r *LocalRuntime) agentThinkingLabel(ctx context.Context, a *agent.Agent) string {
+	if a.HasHarness() {
+		return harnessThinkingLabel(a.Harness())
+	}
 	models := a.EffectiveModels()
 	if len(models) == 0 {
 		return ""

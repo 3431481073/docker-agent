@@ -102,8 +102,7 @@ func (t *Team) AgentsInfo(ctx context.Context) []AgentInfo {
 			info.Model = id.Model
 		} else if harnessType := a.HarnessType(); harnessType != "" {
 			// Harness-backed agents have no provider.Provider; surface the
-			// harness type (e.g. "claude-code") as the display model and leave
-			// Thinking empty so no badge/card line is shown.
+			// harness type (e.g. "claude-code") as the display model.
 			info.Model = harnessType
 		}
 		infos = append(infos, info)

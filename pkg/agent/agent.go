@@ -58,6 +58,7 @@ type Agent struct {
 	tools                   []tools.Tool
 	commands                types.Commands
 	harness                 *latest.HarnessConfig
+	harnessEffort           atomic.Pointer[string] // Optional harness effort override set at runtime
 	hooks                   *latest.HooksConfig
 	evaluators              map[string]evaluator.Evaluator
 	cache                   *cache.Cache
@@ -392,9 +393,24 @@ func (a *Agent) Commands() types.Commands {
 	return a.commands
 }
 
-// Harness returns the external coding harness configuration for this agent.
+// Harness returns the external coding harness configuration for this agent,
+// with the runtime effort override applied.
 func (a *Agent) Harness() *latest.HarnessConfig {
+	if a.harness == nil {
+		return nil
+	}
+	if effort := a.harnessEffort.Load(); effort != nil {
+		cfg := *a.harness
+		cfg.Effort = *effort
+		return &cfg
+	}
 	return a.harness
+}
+
+// SetHarnessEffort overrides the configured harness effort, as
+// SetModelOverride does for a model's thinking level.
+func (a *Agent) SetHarnessEffort(effort string) {
+	a.harnessEffort.Store(&effort)
 }
 
 func (a *Agent) HasHarness() bool {

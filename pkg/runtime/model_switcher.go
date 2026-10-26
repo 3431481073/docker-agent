@@ -53,8 +53,12 @@ func (r *LocalRuntime) RefreshModelsCatalog(ctx context.Context) error {
 func (r *LocalRuntime) CycleAgentThinkingLevel(ctx context.Context, agentName string) (effort.Level, error) {
 	return r.applyAgentThinkingLevel(ctx, agentName, func(supported []effort.Level, current effort.Level) (effort.Level, error) {
 		// Clamp first so a configured level the model does not support re-enters
-		// the cycle at the nearest supported tier instead of resetting it.
-		return effort.NextSupportedLevel(supported, effort.Clamp(supported, current)), nil
+		// the cycle at the nearest supported tier instead of resetting it. An
+		// unset level (a harness on its CLI default) starts the cycle instead.
+		if current != "" {
+			current = effort.Clamp(supported, current)
+		}
+		return effort.NextSupportedLevel(supported, current), nil
 	})
 }
 
@@ -121,6 +125,9 @@ func (r *LocalRuntime) resolveAgentThinkingLevels(ctx context.Context, agentName
 	if err != nil {
 		return nil, "", fmt.Errorf("agent not found: %w", err)
 	}
+	if a.HasHarness() {
+		return harnessThinkingLevels(a.Harness())
+	}
 
 	return r.resolveThinkingLevelsForModels(ctx, a.EffectiveModels())
 }
@@ -143,7 +150,7 @@ func (r *LocalRuntime) CurrentAgentThinkingLevels(ctx context.Context) []effort.
 // applyAgentThinkingLevel resolves the agent's current model, asks pick to
 // choose the target level among the model's supported ones, re-creates the
 // effective provider(s) with that level, and installs them as a runtime
-// override.
+// override. A harness agent gets a harness effort override instead.
 //
 // It snapshots EffectiveModels exactly once and reuses that same snapshot
 // for both capability resolution and provider recreation. Taking a second,
@@ -159,6 +166,9 @@ func (r *LocalRuntime) applyAgentThinkingLevel(ctx context.Context, agentName st
 	a, err := r.team.Agent(agentName)
 	if err != nil {
 		return "", fmt.Errorf("agent not found: %w", err)
+	}
+	if a.HasHarness() {
+		return applyHarnessThinkingLevel(ctx, a, pick)
 	}
 
 	models := a.EffectiveModels()
@@ -188,6 +198,49 @@ func (r *LocalRuntime) applyAgentThinkingLevel(ctx context.Context, agentName st
 
 	a.SetModelOverride(newProviders...)
 	slog.InfoContext(ctx, "Set agent thinking level", "agent", agentName, "level", next)
+	return next, nil
+}
+
+// harnessEffortLevels are the harness.effort values config validation accepts.
+var harnessEffortLevels = []effort.Level{effort.Low, effort.Medium, effort.High, effort.XHigh, effort.Max}
+
+// harnessThinkingLevels returns the levels a harness agent's effort can take
+// and its current one, "" while the CLI picks it.
+func harnessThinkingLevels(cfg *latest.HarnessConfig) ([]effort.Level, effort.Level, error) {
+	if cfg.Type != "claude-code" && cfg.Type != "command-code" {
+		return nil, "", fmt.Errorf("harness %q does not support thinking levels: %w", cfg.Type, ErrUnsupported)
+	}
+	return slices.Clone(harnessEffortLevels), effort.Level(cfg.Effort), nil
+}
+
+// harnessThinkingLabel is agentThinkingLabel for a harness agent.
+func harnessThinkingLabel(cfg *latest.HarnessConfig) string {
+	_, current, err := harnessThinkingLevels(cfg)
+	switch {
+	case err != nil:
+		return ""
+	case current == "":
+		return "adaptive"
+	default:
+		return string(current)
+	}
+}
+
+// applyHarnessThinkingLevel is applyAgentThinkingLevel for a harness agent:
+// its next turns pass the picked level to the CLI.
+func applyHarnessThinkingLevel(ctx context.Context, a *agent.Agent, pick func(supported []effort.Level, current effort.Level) (effort.Level, error)) (effort.Level, error) {
+	supported, current, err := harnessThinkingLevels(a.Harness())
+	if err != nil {
+		return "", err
+	}
+
+	next, err := pick(supported, current)
+	if err != nil {
+		return "", err
+	}
+
+	a.SetHarnessEffort(string(next))
+	slog.InfoContext(ctx, "Set agent thinking level", "agent", a.Name(), "level", next)
 	return next, nil
 }
 
