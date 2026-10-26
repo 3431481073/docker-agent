@@ -114,14 +114,6 @@ func GetInstructions(ts ToolSet) string {
 	return ""
 }
 
-// ChangeNotifier is implemented by toolsets that can notify when their
-// tool list changes (e.g. after an MCP ToolListChanged notification).
-// The single handler slot is replaced on every call; hosts that may share
-// a toolset with other runtimes should prefer ChangeSubscriber.
-type ChangeNotifier interface {
-	SetToolsChangedHandler(handler func())
-}
-
 // ChangeSubscriber is implemented by toolsets whose tool-list changes can
 // be observed by any number of hosts at once (one per runtime sharing the
 // toolset). Every subscriber receives every change; unsubscribing removes

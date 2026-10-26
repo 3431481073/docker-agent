@@ -737,7 +737,7 @@ type capableToolSet struct {
 	oauthSuccessHandler       func()
 	managedOAuth              bool
 	unmanagedOAuthRedirectURI string
-	toolsChangedHandler       func()
+	toolsChangedSubs          tools.ChangeSubscribers
 }
 
 var (
@@ -745,7 +745,7 @@ var (
 	_ tools.Sampleable          = (*capableToolSet)(nil)
 	_ tools.SampleableWithTools = (*capableToolSet)(nil)
 	_ tools.OAuthCapable        = (*capableToolSet)(nil)
-	_ tools.ChangeNotifier      = (*capableToolSet)(nil)
+	_ tools.ChangeSubscriber    = (*capableToolSet)(nil)
 )
 
 func (c *capableToolSet) SetElicitationHandler(handler tools.ElicitationHandler) {
@@ -772,8 +772,8 @@ func (c *capableToolSet) SetUnmanagedOAuthRedirectURI(uri string) {
 	c.unmanagedOAuthRedirectURI = uri
 }
 
-func (c *capableToolSet) SetToolsChangedHandler(handler func()) {
-	c.toolsChangedHandler = handler
+func (c *capableToolSet) SubscribeToolsChanged(handler func()) func() {
+	return c.toolsChangedSubs.Subscribe(handler)
 }
 
 // TestCodeModeTool_ConfiguresCapabilityHandlers verifies that generic graph
@@ -814,11 +814,10 @@ func TestCodeModeTool_ConfiguresCapabilityHandlers(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:1234/callback", capable.unmanagedOAuthRedirectURI)
 
 	changedCalled := false
-	for _, notifier := range tools.FindAll[tools.ChangeNotifier](tool) {
-		notifier.SetToolsChangedHandler(func() { changedCalled = true })
+	for _, notifier := range tools.FindAll[tools.ChangeSubscriber](tool) {
+		t.Cleanup(notifier.SubscribeToolsChanged(func() { changedCalled = true }))
 	}
-	require.NotNil(t, capable.toolsChangedHandler)
-	capable.toolsChangedHandler()
+	capable.toolsChangedSubs.Notify()
 	assert.True(t, changedCalled)
 }
 
