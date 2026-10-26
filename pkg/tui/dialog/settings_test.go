@@ -398,6 +398,20 @@ func TestSettingsDialogTogglesCacheStablePrompts(t *testing.T) {
 	assert.Contains(t, ansi.Strip(d.View()), "Cache-stable dynamic prompts")
 }
 
+func TestSettingsDialogBackgroundCompaction(t *testing.T) {
+	t.Parallel()
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.tab = tabBehavior
+	assert.False(t, d.current.BackgroundCompaction)
+	assert.Equal(t, 70, d.current.BackgroundCompactionThreshold)
+	d.selected[tabBehavior] = rowBackgroundCompaction
+	d.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.True(t, d.current.BackgroundCompaction)
+	d.selected[tabBehavior] = rowBackgroundCompactionThreshold
+	d.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	assert.Equal(t, 71, d.current.BackgroundCompactionThreshold)
+}
+
 func TestSettingsDialogTogglesShowBanner(t *testing.T) {
 	t.Parallel()
 

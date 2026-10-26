@@ -147,6 +147,45 @@ func TestSettingsSoundThreshold(t *testing.T) {
 	assert.Equal(t, 1, userconfig.Get().GetSoundThreshold())
 }
 
+func TestSettingsBackgroundCompaction(t *testing.T) {
+	setupLeanSettingsTest(t)
+	m := bareModel(80)
+	m.openSettings()
+	assert.False(t, m.settings.values[settingBackgroundCompaction])
+	assert.Equal(t, 70, m.settings.backgroundThreshold)
+	assert.Contains(t, m.screen.Settings.Rows[settingBackgroundCompaction].Label, "Background compaction")
+	assert.Equal(t, "70%", m.screen.Settings.Rows[settingBackgroundCompactionThreshold].Value)
+	m.screen.Settings.Selected = settingBackgroundCompaction
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+	m.screen.Settings.Selected = settingBackgroundCompactionThreshold
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyLeft})
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyEnter})
+	assert.True(t, userconfig.Get().BackgroundCompaction)
+	assert.Equal(t, 69, userconfig.Get().GetBackgroundCompactionThreshold())
+
+	m.openSettings()
+	assert.True(t, m.settings.values[settingBackgroundCompaction])
+	assert.Equal(t, 69, m.settings.backgroundThreshold)
+	m.screen.Settings.Selected = settingBackgroundCompactionThreshold
+	m.settings.backgroundThreshold = 99
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+	assert.Equal(t, 99, m.settings.backgroundThreshold)
+	m.settings.backgroundThreshold = 1
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyLeft})
+	assert.Equal(t, 1, m.settings.backgroundThreshold)
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyEsc})
+	assert.Equal(t, 69, userconfig.Get().GetBackgroundCompactionThreshold())
+
+	m.openSettings()
+	m.screen.Settings.Selected = settingBackgroundCompactionThreshold
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyEnter})
+	cfg, err := userconfig.Load()
+	require.NoError(t, err)
+	assert.Zero(t, cfg.Settings.BackgroundCompactionThreshold, "default is omitted from config")
+	assert.True(t, cfg.Settings.BackgroundCompaction)
+}
+
 func TestSettingsRenderingPreferences(t *testing.T) {
 	setupLeanSettingsTest(t)
 	m := bareModel(80)

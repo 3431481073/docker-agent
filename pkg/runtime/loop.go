@@ -19,7 +19,6 @@ import (
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
-	"github.com/docker/docker-agent/pkg/compaction"
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/modelsdev"
@@ -302,7 +301,9 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		sessionStartLegacyMsgs: sessionStart.legacyMessages(),
 		sessionStartSources:    sessionStart.sources,
 		route:                  route,
+		compaction:             newCompactionController(r, sess, sink, userconfig.Get()),
 	}
+	defer ls.compaction.Close(ctx)
 
 	// Emit team information
 	sink.Emit(TeamInfo(r.agentDetailsFromTeam(ctx), a.Name()))
@@ -535,10 +536,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		// trigger and the UI context gauge (issue #3241); it equals the primary
 		// window unless a smaller compaction model is configured.
 		contextLimit := r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, model, modelID))
-		inputTokens, outputTokens := sess.Usage()
-		if contextLimit > 0 && r.sessionCompactionEnabled(a) && compaction.ShouldCompact(inputTokens, outputTokens, 0, contextLimit, a.CompactionThreshold()) {
-			r.compactWithReason(ctx, sess, "", compactionReasonThreshold, sink)
-		}
+		ls.compaction.BeforeTurn(ctx, a, contextLimit)
 
 		// Drain steer messages queued while idle or before the first model call
 		// (covers idle-window and first-turn-miss races).
@@ -546,7 +544,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 			if r.applySteering(ctx, sess, a, ls, sr, sink) {
 				return
 			}
-			r.compactIfNeeded(ctx, sess, a, contextLimit, sr.messageCountBefore, sink)
+			ls.compaction.AfterMessages(ctx, a, contextLimit, sr.messageCountBefore)
 		}
 
 		// Proactive compaction may have exhausted the budget since the first check.
@@ -599,6 +597,7 @@ const (
 // new per-stream tracking (cost ceiling, token budget, turn timing)
 // without touching any signature.
 type loopState struct {
+	compaction             *compactionController
 	iteration              int
 	maxIterations          int
 	overflowCompactions    int
@@ -1019,7 +1018,7 @@ func (r *LocalRuntime) runTurn(
 			endReason = turnEndReasonHookBlocked
 			return turnExit
 		}
-		r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
+		ls.compaction.AfterMessages(ctx, a, contextLimit, messageCountBeforeTools)
 		endReason = turnEndReasonSteered
 		return turnContinue
 	}
@@ -1078,7 +1077,7 @@ func (r *LocalRuntime) runTurn(
 				return turnExit
 			}
 			r.restartRouting(sess, ls)
-			r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
+			ls.compaction.AfterMessages(ctx, a, contextLimit, messageCountBeforeTools)
 			endReason = turnEndReasonSteered
 			return turnContinue
 		}
@@ -1104,7 +1103,7 @@ func (r *LocalRuntime) runTurn(
 			}
 			ls.userPromptMsgs = ctxMsgs
 			r.restartRouting(sess, ls)
-			r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
+			ls.compaction.AfterMessages(ctx, a, contextLimit, messageCountBeforeTools)
 			endReason = turnEndReasonContinue
 			return turnContinue // re-enter the loop for a new turn
 		}
@@ -1117,7 +1116,7 @@ func (r *LocalRuntime) runTurn(
 		return turnExit
 	}
 
-	r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
+	ls.compaction.AfterMessages(ctx, a, contextLimit, messageCountBeforeTools)
 	endReason = turnEndReasonContinue
 	return turnContinue
 }
@@ -1328,67 +1327,6 @@ func usageHasTokens(usage *chat.Usage) bool {
 		usage.OutputTokens > 0 ||
 		usage.CachedInputTokens > 0 ||
 		usage.CacheWriteTokens > 0
-}
-
-// compactIfNeeded estimates the token impact of tool results added since
-// messageCountBefore and triggers proactive compaction when the estimated
-// total crosses the agent's compaction threshold (90% of the context window
-// by default). This prevents sending an oversized request on the next
-// iteration.
-func (r *LocalRuntime) compactIfNeeded(
-	ctx context.Context,
-	sess *session.Session,
-	a *agent.Agent,
-	contextLimit int64,
-	messageCountBefore int,
-	events EventSink,
-) {
-	// contextLimit is the effective budget (primary window, capped to a smaller
-	// dedicated compaction model's window when configured) computed by
-	// runStreamLoop, so this site fires consistently with the pre-turn trigger.
-	if !r.sessionCompactionEnabled(a) || contextLimit <= 0 {
-		return
-	}
-
-	// Estimate only over the session's own new messages: sub-session
-	// content recorded during tool calls (transfer_task and friends)
-	// never enters this session's prompt, so counting it here would
-	// attribute phantom tokens to a small parent conversation and
-	// trigger a compaction that wipes it (see issue #2871).
-	//
-	// The estimator is calibrated against the provider-reported usage
-	// already recorded on this session's assistant messages, so the
-	// heuristic guess for the fresh tool results tracks the provider's
-	// actual tokenizer instead of a fixed chars-per-token ratio.
-	ownMessages := sess.OwnMessages()
-	estimator := compaction.NewEstimator(func(yield func(*chat.Message) bool) {
-		for i := range ownMessages {
-			if !yield(&ownMessages[i].Message) {
-				return
-			}
-		}
-	})
-	newMessages := ownMessages[messageCountBefore:]
-	var addedTokens int64
-	for i := range newMessages {
-		addedTokens += estimator.EstimateMessageTokens(&newMessages[i].Message)
-	}
-
-	inputTokens, outputTokens := sess.Usage()
-	if !compaction.ShouldCompact(inputTokens, outputTokens, addedTokens, contextLimit, a.CompactionThreshold()) {
-		return
-	}
-
-	slog.InfoContext(ctx, "Proactive compaction: tool results pushed estimated context past the compaction threshold",
-		"agent", a.Name(),
-		"input_tokens", inputTokens,
-		"output_tokens", outputTokens,
-		"added_estimated_tokens", addedTokens,
-		"estimator_scale", estimator.Scale(),
-		"estimated_total", inputTokens+outputTokens+addedTokens,
-		"context_limit", contextLimit,
-	)
-	r.compactWithReason(ctx, sess, "", compactionReasonThreshold, events)
 }
 
 // getTools executes tool retrieval with automatic OAuth handling and applies

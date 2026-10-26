@@ -69,6 +69,15 @@ func (r *LocalRuntime) sessionCompactionEnabled(a *agent.Agent) bool {
 // env / cwd / OS info is automatically present after a compaction without
 // any extra dispatch.
 func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *agent.Agent, additionalPrompt, reason string, events EventSink) {
+	result := r.generateCompaction(ctx, sess, a, additionalPrompt, reason, events)
+	if result == nil {
+		return
+	}
+	outcome := r.applyCompactionResult(ctx, sess, a, result, reason, events)
+	events.Emit(SessionCompactionCompleted(sess.ID, outcome, a.Name()))
+}
+
+func (r *LocalRuntime) generateCompaction(ctx context.Context, sess *session.Session, a *agent.Agent, additionalPrompt, reason string, events EventSink) (result *compactor.Result) {
 	contextLimit, limitErr := r.compactionContextLimitChecked(ctx, a)
 
 	// before_compaction: hooks can veto or supply a custom summary.
@@ -78,7 +87,7 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 			"session_id", sess.ID, "agent", a.Name(), "reason", reason,
 			"hook_message", pre.Message,
 		)
-		return
+		return nil
 	}
 
 	slog.DebugContext(ctx, "Generating summary for session", "session_id", sess.ID, "reason", reason)
@@ -90,20 +99,22 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 	// that did nothing.
 	outcome := CompactionOutcomeApplied
 	defer func() {
-		events.Emit(SessionCompactionCompleted(sess.ID, outcome, a.Name()))
+		if result == nil {
+			events.Emit(SessionCompactionCompleted(sess.ID, outcome, a.Name()))
+		}
 	}()
 
 	// Choose the strategy: a hook-supplied summary if before_compaction
 	// returned one, then provider-native compaction when the model opts in,
 	// otherwise the default LLM strategy.
-	result := summaryFromHook(sess, a, pre, contextLimit)
+	result = summaryFromHook(sess, a, pre, contextLimit)
 	if result == nil {
 		native, err := nativeCompactor(ctx, a)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to generate session summary", "error", err)
 			events.Emit(ErrorForSession(sess.ID, err.Error()))
 			outcome = CompactionOutcomeFailed
-			return
+			return nil
 		}
 		if native != nil {
 			result, err = r.compactNatively(ctx, sess, a, native, additionalPrompt, events)
@@ -111,14 +122,14 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 			if limitErr != nil {
 				events.Emit(ErrorForSession(sess.ID, limitErr.Error()))
 				outcome = CompactionOutcomeFailed
-				return
+				return nil
 			}
 			if contextLimit <= 0 {
 				slog.ErrorContext(ctx, "Failed to generate session summary",
 					"error", "model definition unavailable")
 				events.Emit(ErrorForSession(sess.ID, "Failed to get model definition"))
 				outcome = CompactionOutcomeFailed
-				return
+				return nil
 			}
 			result, err = compactor.RunLLM(ctx, compactor.LLMArgs{
 				Session:          sess,
@@ -132,21 +143,26 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 		}
 		if errors.Is(err, errCompactionBudgetExceeded) {
 			outcome = CompactionOutcomeSkipped
-			return
+			return nil
 		}
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to generate session summary", "error", err)
 			events.Emit(ErrorForSession(sess.ID, err.Error()))
 			outcome = CompactionOutcomeFailed
-			return
+			return nil
 		}
 		if result == nil {
 			// Empty summary — bail without applying anything.
 			outcome = CompactionOutcomeSkipped
-			return
+			return nil
 		}
 	}
 
+	return result
+}
+
+func (r *LocalRuntime) applyCompactionResult(ctx context.Context, sess *session.Session, a *agent.Agent, result *compactor.Result, reason string, events EventSink) string {
+	contextLimit := r.compactionContextLimit(ctx, a)
 	// Capture the pre-compaction token counts so the after_compaction
 	// hook can observe what was summarized ("compacted from X to Y").
 	// We snapshot before applying the result because the apply step
@@ -172,8 +188,7 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 	if err := r.sessionStore.PersistCompaction(ctx, sess, result.InputTokens, 0, item); err != nil {
 		slog.ErrorContext(ctx, "Failed to persist session compaction", "session_id", sess.ID, "error", err)
 		events.Emit(ErrorForSession(sess.ID, fmt.Sprintf("Failed to persist session compaction: %v", err)))
-		outcome = CompactionOutcomeFailed
-		return
+		return CompactionOutcomeFailed
 	}
 
 	if result.Compaction != nil {
@@ -193,6 +208,7 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 	// counts live on sess.InputTokens / sess.OutputTokens after this
 	// returns and are exposed via the next TokenUsageEvent.
 	r.executeAfterCompactionHooks(ctx, sess, a, reason, contextLimit, preInputTokens, preOutputTokens, result.Summary, events)
+	return CompactionOutcomeApplied
 }
 
 // summaryUsage lifts a result's usage into the *chat.Usage form session
