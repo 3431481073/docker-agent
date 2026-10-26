@@ -70,6 +70,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://global.api-route.com/v1",
 		TokenEnvVar: "API_ROUTE_API_KEY",
 	},
+	"runcrate": {
+		APIType:     "openai",
+		BaseURL:     "https://api.runcrate.ai/v1",
+		TokenEnvVar: "RUNCRATE_API_KEY",
+	},
 	"atlascloud": {
 		APIType:     "openai",
 		BaseURL:     "https://api.atlascloud.ai/v1",
