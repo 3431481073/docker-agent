@@ -151,6 +151,17 @@ func (c *Client) createBetaStream(
 	trackUsage := c.TrackUsageEnabled()
 	ad := c.newBetaStreamAdapter(stream, trackUsage)
 	ad.requestContext = requestContext
+	ad.fallbackModels = fallbackTargets(c.ModelConfig.ProviderOpts)
+	for _, message := range params.Messages {
+		if message.Role != anthropic.BetaMessageParamRoleAssistant {
+			continue
+		}
+		for _, block := range message.Content {
+			if block.OfFallback != nil {
+				ad.fallbackModels = append(ad.fallbackModels, block.OfFallback.To.Model)
+			}
+		}
+	}
 
 	// Set up single retry for context length errors
 	ad.retryFn = func() *ssestream.Stream[anthropic.BetaRawMessageStreamEventUnion] {

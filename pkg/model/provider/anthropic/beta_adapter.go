@@ -35,8 +35,12 @@ type betaStreamAdapter struct {
 	// fallback handed the turn to, unset when the dispatched model served it.
 	// The runtime may read it while the reader goroutine still writes it
 	// (cancellation, idle timeout).
-	config base.Config
-	served atomic.Pointer[string]
+	provisional    atomic.Pointer[string]
+	settled        atomic.Bool
+	config         base.Config
+	fallbackModels []string
+	markerSeen     bool
+	served         atomic.Pointer[string]
 }
 
 // newBetaStreamAdapter creates a new Beta stream adapter
@@ -75,6 +79,12 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 
 	// Handle different event types
 	switch eventVariant := event.AsAny().(type) {
+	case anthropic.BetaRawMessageStartEvent:
+		model := eventVariant.Message.Model
+		// Sticky routing has no marker; retain an early candidate if usage never arrives.
+		if model != "" && model != a.config.ModelConfig.Model && slices.Contains(a.fallbackModels, model) {
+			a.provisional.Store(&model)
+		}
 	case anthropic.BetaRawContentBlockStartEvent:
 		switch block := eventVariant.ContentBlock.AsAny().(type) {
 		case anthropic.BetaToolUseBlock:
@@ -91,6 +101,7 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		case anthropic.BetaFallbackBlock:
 			// The declined model's tool calls are superseded.
 			a.toolCall = false
+			a.markerSeen = true
 			a.served.Store(&block.To.Model)
 			response.Choices[0].Delta.ServerFallback = &chat.ServerFallback{From: block.From.Model, To: block.To.Model}
 		case anthropic.BetaThinkingBlock:
@@ -126,9 +137,8 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		}
 	case anthropic.BetaRawMessageDeltaEvent:
 		a.stopReason = eventVariant.Delta.StopReason
-		// Sticky routing sends no marker: only a fallback_message iteration
-		// shows that a fallback model served the turn.
-		if a.served.Load() == nil {
+		// Confirmed usage supersedes the candidate, but never an explicit marker.
+		if !a.markerSeen {
 			for _, it := range slices.Backward(a.message.Usage.Iterations) {
 				if it.Type == "fallback_message" {
 					a.served.Store(&it.Model)
@@ -136,6 +146,7 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 				}
 			}
 		}
+		a.settled.Store(true)
 		if a.trackUsage {
 			response.Usage = betaUsageFromMessage(a.message.Usage)
 		}
@@ -175,6 +186,9 @@ func (a *betaStreamAdapter) accumulate(event anthropic.BetaRawMessageStreamEvent
 // ServedBy reports the model a server fallback handed the turn to.
 func (a *betaStreamAdapter) ServedBy() (contracts.ServingModel, bool) {
 	served := a.served.Load()
+	if served == nil && !a.settled.Load() {
+		served = a.provisional.Load()
+	}
 	if served == nil {
 		return contracts.ServingModel{}, false
 	}

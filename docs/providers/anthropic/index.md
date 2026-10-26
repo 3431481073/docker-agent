@@ -378,6 +378,16 @@ Docker Agent sends the `server-side-fallback-2026-07-01` beta header, which
 accepts both forms, through the beta Messages API. The response's `model`
 field reports which model actually served the request.
 
+For sticky routing without a handoff marker, Docker Agent uses a different
+`message_start.model` provisionally when it matches an explicit fallback target
+or a replayed handoff target. This preserves attribution on clean EOF before
+final usage. A completed usage event clears the candidate unless a
+`fallback_message` confirms fallback routing; an explicit handoff marker takes
+precedence over both. Ordinary responses keep the configured model ID, display
+name and cost override. A truncated alias that collides with a historical target
+can still be attributed to that target; explicit fallback aliases without a
+matching history marker have no early attribution.
+
 Rules checked at startup:
 
 - A list holds at most three models, each distinct and different from the

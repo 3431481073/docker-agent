@@ -311,28 +311,37 @@ func TestServerFallbackStatePerStream(t *testing.T) {
 func TestServedByWhileStreaming(t *testing.T) {
 	t.Parallel()
 
-	stream, err := fallbackClient(newScriptedServer(t, anthropictest.FallbackMidOutputReply("m", "claude-opus-4-8", "claude-sonnet-4-6", "before", "after", "t1"))).CreateChatCompletionStream(t.Context(), []chat.Message{user("q")}, nil)
-	require.NoError(t, err)
-	defer stream.Close()
-	served := stream.(contracts.ServedStream)
+	for name, reply := range map[string]string{
+		"marker":       anthropictest.FallbackMidOutputReply("m", "claude-opus-4-8", "claude-sonnet-4-6", "before", "after", "t1"),
+		"early sticky": anthropictest.StickyTruncatedReply("m", "claude-sonnet-4-6", "partial"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			stream, err := fallbackClient(newScriptedServer(t, reply)).CreateChatCompletionStream(t.Context(), []chat.Message{user("q")}, nil)
+			require.NoError(t, err)
+			defer stream.Close()
+			served := stream.(contracts.ServedStream)
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			if _, err := stream.Recv(); err != nil {
-				return
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for {
+					if _, err := stream.Recv(); err != nil {
+						return
+					}
+				}
+			}()
+			for {
+				served.ServedBy()
+				select {
+				case <-done:
+					model, ok := served.ServedBy()
+					assert.True(t, ok)
+					assert.Equal(t, "claude-sonnet-4-6", model.ID.Model)
+					return
+				default:
+				}
 			}
-		}
-	}()
-	for {
-		served.ServedBy()
-		select {
-		case <-done:
-			_, ok := served.ServedBy()
-			assert.True(t, ok)
-			return
-		default:
-		}
+		})
 	}
 }
