@@ -135,6 +135,24 @@ The CLI uses this helper for both its initial runtime and TUI-spawned runtimes.
 The HTTP API wires the same manifest budgets into its native runtimes; other
 serving adapters retain their existing wiring and budget behavior.
 
+## Remote execution
+
+Remote HTTP/SSE execution lives in `pkg/runtime/remote`:
+
+```go
+client, err := remote.NewClient(serverURL)
+if err != nil {
+    return err
+}
+rt, err := remote.NewRuntime(client)
+```
+
+Import `github.com/docker/docker-agent/pkg/runtime/remote` for these constructors.
+Shared interfaces and events remain in `pkg/runtime` (`runtime.Runtime`,
+`runtime.Event`, and the concrete event types). The remote implementation imports
+those types; local execution does not import remote transport. There are no
+compatibility re-exports of remote clients or constructors in `pkg/runtime`.
+
 ## Execution Capability Inspection
 
 `(*runtime.LocalRuntime).AgentExecutionCapabilities(name)` returns a static
@@ -275,7 +293,7 @@ For anything beyond that, call `chat.Runtime()` to access the underlying `runtim
 > still works and falls back to resolving the sole pending request.
 >
 > If you implement your own `runtime.Runtime` (rather than embedding
-> `runtime.LocalRuntime`/`runtime.RemoteRuntime`), you do need to update your
+> `runtime.LocalRuntime`/`remote.Runtime`), you do need to update your
 > method's signature to match, and also add an `OnElicitationRequest(handler
 > func(runtime.Event))` method (a no-op is fine if your runtime never raises
 > elicitations) — both are required interface methods, matching the existing

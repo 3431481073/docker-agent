@@ -1,4 +1,4 @@
-package runtime
+package remote
 
 import (
 	"bufio"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/api"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	agentruntime "github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -27,7 +28,7 @@ type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
 	authToken  string
-	registry   map[string]func() Event
+	registry   map[string]func() agentruntime.Event
 }
 
 // ClientOption is a function for configuring the Client
@@ -79,52 +80,52 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 		httpClient: &http.Client{ //rubocop:disable Lint/HTTPClientTransport // remote runtime base client; callers may add OTel transport via WithOTelTransport
 			Timeout: 30 * time.Second,
 		},
-		registry: map[string]func() Event{
-			"user_message":            func() Event { return &UserMessageEvent{} },
-			"tool_call":               func() Event { return &ToolCallEvent{} },
-			"tool_call_output":        func() Event { return &ToolCallOutputEvent{} },
-			"tool_call_response":      func() Event { return &ToolCallResponseEvent{} },
-			"tool_call_confirmation":  func() Event { return &ToolCallConfirmationEvent{} },
-			"token_usage":             func() Event { return &TokenUsageEvent{} },
-			"evaluation_usage":        func() Event { return &EvaluationUsageEvent{} },
-			"stream_stopped":          func() Event { return &StreamStoppedEvent{} },
-			"session_recovered":       func() Event { return &SessionRecoveredEvent{} },
-			"runtime_paused":          func() Event { return &PausedEvent{} },
-			"stream_started":          func() Event { return &StreamStartedEvent{} },
-			"background_agent_status": func() Event { return &BackgroundAgentStatusEvent{} },
-			"shell":                   func() Event { return &ShellOutputEvent{} },
-			"session_title":           func() Event { return &SessionTitleEvent{} },
-			"plan_changed":            func() Event { return &PlanChangedEvent{} },
-			"session_summary":         func() Event { return &SessionSummaryEvent{} },
-			"session_compaction":      func() Event { return &SessionCompactionEvent{} },
-			"partial_tool_call":       func() Event { return &PartialToolCallEvent{} },
-			"max_iterations_reached":  func() Event { return &MaxIterationsReachedEvent{} },
-			"budget_usage":            func() Event { return &BudgetUsageEvent{} },
-			"budget_exceeded":         func() Event { return &BudgetExceededEvent{} },
-			"error":                   func() Event { return &ErrorEvent{} },
-			"elicitation_request":     func() Event { return &ElicitationRequestEvent{} },
-			"elicitation_closed":      func() Event { return &ElicitationClosedEvent{} },
-			"authorization_event":     func() Event { return &AuthorizationEvent{} },
-			"agent_choice":            func() Event { return &AgentChoiceEvent{} },
-			"agent_choice_reasoning":  func() Event { return &AgentChoiceReasoningEvent{} },
-			"mcp_init_started":        func() Event { return &MCPInitStartedEvent{} },
-			"mcp_init_finished":       func() Event { return &MCPInitFinishedEvent{} },
-			"agent_info":              func() Event { return &AgentInfoEvent{} },
-			"team_info":               func() Event { return &TeamInfoEvent{} },
-			"toolset_info":            func() Event { return &ToolsetInfoEvent{} },
-			"agent_switching":         func() Event { return &AgentSwitchingEvent{} },
-			"agent_route":             func() Event { return &AgentRouteEvent{} },
-			"routing_decision":        func() Event { return &RoutingDecisionEvent{} },
-			"warning":                 func() Event { return &WarningEvent{} },
-			"hook_blocked":            func() Event { return &HookBlockedEvent{} },
-			"hook_started":            func() Event { return &HookStartedEvent{} },
-			"hook_finished":           func() Event { return &HookFinishedEvent{} },
-			"rag_indexing_started":    func() Event { return &RAGIndexingStartedEvent{} },
-			"rag_indexing_progress":   func() Event { return &RAGIndexingProgressEvent{} },
-			"rag_indexing_completed":  func() Event { return &RAGIndexingCompletedEvent{} },
-			"message_added":           func() Event { return &MessageAddedEvent{} },
-			"model_fallback":          func() Event { return &ModelFallbackEvent{} },
-			"sub_session_completed":   func() Event { return &SubSessionCompletedEvent{} },
+		registry: map[string]func() agentruntime.Event{
+			"user_message":            func() agentruntime.Event { return &agentruntime.UserMessageEvent{} },
+			"tool_call":               func() agentruntime.Event { return &agentruntime.ToolCallEvent{} },
+			"tool_call_output":        func() agentruntime.Event { return &agentruntime.ToolCallOutputEvent{} },
+			"tool_call_response":      func() agentruntime.Event { return &agentruntime.ToolCallResponseEvent{} },
+			"tool_call_confirmation":  func() agentruntime.Event { return &agentruntime.ToolCallConfirmationEvent{} },
+			"token_usage":             func() agentruntime.Event { return &agentruntime.TokenUsageEvent{} },
+			"evaluation_usage":        func() agentruntime.Event { return &agentruntime.EvaluationUsageEvent{} },
+			"stream_stopped":          func() agentruntime.Event { return &agentruntime.StreamStoppedEvent{} },
+			"session_recovered":       func() agentruntime.Event { return &agentruntime.SessionRecoveredEvent{} },
+			"runtime_paused":          func() agentruntime.Event { return &agentruntime.PausedEvent{} },
+			"stream_started":          func() agentruntime.Event { return &agentruntime.StreamStartedEvent{} },
+			"background_agent_status": func() agentruntime.Event { return &agentruntime.BackgroundAgentStatusEvent{} },
+			"shell":                   func() agentruntime.Event { return &agentruntime.ShellOutputEvent{} },
+			"session_title":           func() agentruntime.Event { return &agentruntime.SessionTitleEvent{} },
+			"plan_changed":            func() agentruntime.Event { return &agentruntime.PlanChangedEvent{} },
+			"session_summary":         func() agentruntime.Event { return &agentruntime.SessionSummaryEvent{} },
+			"session_compaction":      func() agentruntime.Event { return &agentruntime.SessionCompactionEvent{} },
+			"partial_tool_call":       func() agentruntime.Event { return &agentruntime.PartialToolCallEvent{} },
+			"max_iterations_reached":  func() agentruntime.Event { return &agentruntime.MaxIterationsReachedEvent{} },
+			"budget_usage":            func() agentruntime.Event { return &agentruntime.BudgetUsageEvent{} },
+			"budget_exceeded":         func() agentruntime.Event { return &agentruntime.BudgetExceededEvent{} },
+			"error":                   func() agentruntime.Event { return &agentruntime.ErrorEvent{} },
+			"elicitation_request":     func() agentruntime.Event { return &agentruntime.ElicitationRequestEvent{} },
+			"elicitation_closed":      func() agentruntime.Event { return &agentruntime.ElicitationClosedEvent{} },
+			"authorization_event":     func() agentruntime.Event { return &agentruntime.AuthorizationEvent{} },
+			"agent_choice":            func() agentruntime.Event { return &agentruntime.AgentChoiceEvent{} },
+			"agent_choice_reasoning":  func() agentruntime.Event { return &agentruntime.AgentChoiceReasoningEvent{} },
+			"mcp_init_started":        func() agentruntime.Event { return &agentruntime.MCPInitStartedEvent{} },
+			"mcp_init_finished":       func() agentruntime.Event { return &agentruntime.MCPInitFinishedEvent{} },
+			"agent_info":              func() agentruntime.Event { return &agentruntime.AgentInfoEvent{} },
+			"team_info":               func() agentruntime.Event { return &agentruntime.TeamInfoEvent{} },
+			"toolset_info":            func() agentruntime.Event { return &agentruntime.ToolsetInfoEvent{} },
+			"agent_switching":         func() agentruntime.Event { return &agentruntime.AgentSwitchingEvent{} },
+			"agent_route":             func() agentruntime.Event { return &agentruntime.AgentRouteEvent{} },
+			"routing_decision":        func() agentruntime.Event { return &agentruntime.RoutingDecisionEvent{} },
+			"warning":                 func() agentruntime.Event { return &agentruntime.WarningEvent{} },
+			"hook_blocked":            func() agentruntime.Event { return &agentruntime.HookBlockedEvent{} },
+			"hook_started":            func() agentruntime.Event { return &agentruntime.HookStartedEvent{} },
+			"hook_finished":           func() agentruntime.Event { return &agentruntime.HookFinishedEvent{} },
+			"rag_indexing_started":    func() agentruntime.Event { return &agentruntime.RAGIndexingStartedEvent{} },
+			"rag_indexing_progress":   func() agentruntime.Event { return &agentruntime.RAGIndexingProgressEvent{} },
+			"rag_indexing_completed":  func() agentruntime.Event { return &agentruntime.RAGIndexingCompletedEvent{} },
+			"message_added":           func() agentruntime.Event { return &agentruntime.MessageAddedEvent{} },
+			"model_fallback":          func() agentruntime.Event { return &agentruntime.ModelFallbackEvent{} },
+			"sub_session_completed":   func() agentruntime.Event { return &agentruntime.SubSessionCompletedEvent{} },
 		},
 	}
 
@@ -346,18 +347,18 @@ func (c *Client) GetDesktopToken(ctx context.Context) (*api.DesktopTokenResponse
 // the user messages are appended; pass an empty string to leave the existing
 // override (if any) untouched. EOF without a root StreamStoppedEvent is reported
 // as incomplete; a run is never automatically resubmitted.
-func (c *Client) RunAgent(ctx context.Context, sessionID, agent string, messages []api.Message, model string) (<-chan Event, error) {
+func (c *Client) RunAgent(ctx context.Context, sessionID, agent string, messages []api.Message, model string) (<-chan agentruntime.Event, error) {
 	return c.runAgentWithAgentName(ctx, sessionID, agent, "", messages, model)
 }
 
 // RunAgentWithAgentName executes an agent with a specific agent name and
 // returns a channel of streaming events. See [Client.RunAgent] for the
 // semantics of model.
-func (c *Client) RunAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message, model string) (<-chan Event, error) {
+func (c *Client) RunAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message, model string) (<-chan agentruntime.Event, error) {
 	return c.runAgentWithAgentName(ctx, sessionID, agent, agentName, messages, model)
 }
 
-func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message, model string) (<-chan Event, error) {
+func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message, model string) (<-chan agentruntime.Event, error) {
 	endpoint := "/api/sessions/" + sessionID + "/agent/" + agent
 	if agentName != "" {
 		endpoint += "/" + agentName
@@ -403,7 +404,7 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	eventChan := make(chan Event, defaultEventChannelCapacity)
+	eventChan := make(chan agentruntime.Event, defaultEventChannelCapacity)
 
 	go func() {
 		defer close(eventChan)
@@ -433,7 +434,7 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 				Type string `json:"type"`
 			}
 			if err := json.Unmarshal(after, &baseEvent); err != nil {
-				sendClientEvent(ctx, eventChan, Error(fmt.Sprintf("decoding remote agent event: %v", err)))
+				sendClientEvent(ctx, eventChan, agentruntime.Error(fmt.Sprintf("decoding remote agent event: %v", err)))
 				return
 			}
 
@@ -446,14 +447,14 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 
 			e := createEvent()
 			if err := json.Unmarshal(after, &e); err != nil {
-				sendClientEvent(ctx, eventChan, Error(fmt.Sprintf("decoding remote agent event: %v", err)))
+				sendClientEvent(ctx, eventChan, agentruntime.Error(fmt.Sprintf("decoding remote agent event: %v", err)))
 				return
 			}
 
 			switch event := e.(type) {
-			case *StreamStoppedEvent:
+			case *agentruntime.StreamStoppedEvent:
 				sawRootStop = sawRootStop || event.SessionID == "" || event.SessionID == sessionID
-			case *ErrorEvent:
+			case *agentruntime.ErrorEvent:
 				sawError = true
 			}
 			if !sendClientEvent(ctx, eventChan, e) {
@@ -467,12 +468,12 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 		if err := scanner.Err(); err != nil {
 			slog.DebugContext(ctx, "event", "scanner_error", err)
 			if ctx.Err() == nil {
-				sendClientEvent(ctx, eventChan, Error(fmt.Sprintf("reading event stream: %v", err)))
+				sendClientEvent(ctx, eventChan, agentruntime.Error(fmt.Sprintf("reading event stream: %v", err)))
 			}
 			return
 		}
 		if ctx.Err() == nil && !sawRootStop && !sawError {
-			sendClientEvent(ctx, eventChan, Error("remote agent stream ended before completion; the response may be incomplete"))
+			sendClientEvent(ctx, eventChan, agentruntime.Error("remote agent stream ended before completion; the response may be incomplete"))
 		}
 	}()
 
@@ -529,13 +530,13 @@ const sessionEventGapError = "session event stream has a gap; reload the session
 // streams reconnect after transport drops. A gap produces an ErrorEvent and
 // closes the channel: callers must reload a snapshot before subscribing again.
 // Unsequenced legacy streams cannot safely reconnect and close at EOF.
-func (c *Client) StreamSessionEvents(ctx context.Context, sessionID string) (<-chan Event, error) {
+func (c *Client) StreamSessionEvents(ctx context.Context, sessionID string) (<-chan agentruntime.Event, error) {
 	return c.streamSessionEvents(ctx, sessionID, nil)
 }
 
 // StreamSessionEventsSince tails events newer than a snapshot's LastEventSeq.
 // It never replays older history; see StreamSessionEvents for gap handling.
-func (c *Client) StreamSessionEventsSince(ctx context.Context, sessionID string, since uint64) (<-chan Event, error) {
+func (c *Client) StreamSessionEventsSince(ctx context.Context, sessionID string, since uint64) (<-chan agentruntime.Event, error) {
 	return c.streamSessionEvents(ctx, sessionID, &since)
 }
 
@@ -546,7 +547,7 @@ func (c *Client) streamingHTTPClient() *http.Client {
 	return &client
 }
 
-func sendClientEvent(ctx context.Context, events chan<- Event, event Event) bool {
+func sendClientEvent(ctx context.Context, events chan<- agentruntime.Event, event agentruntime.Event) bool {
 	select {
 	case events <- event:
 		return true
@@ -613,12 +614,12 @@ func (c *Client) openSessionEventStream(ctx context.Context, sessionID string, s
 	return resp, nil
 }
 
-func (c *Client) streamSessionEvents(ctx context.Context, sessionID string, since *uint64) (<-chan Event, error) {
+func (c *Client) streamSessionEvents(ctx context.Context, sessionID string, since *uint64) (<-chan agentruntime.Event, error) {
 	resp, err := c.openSessionEventStream(ctx, sessionID, since) //nolint:bodyclose // consumed and closed by readSessionEventStream
 	if err != nil {
 		return nil, err
 	}
-	events := make(chan Event, defaultEventChannelCapacity)
+	events := make(chan agentruntime.Event, defaultEventChannelCapacity)
 	go func() {
 		defer close(events)
 		delay := 250 * time.Millisecond
@@ -628,13 +629,13 @@ func (c *Client) streamSessionEvents(ctx context.Context, sessionID string, sinc
 				return
 			}
 			if errors.Is(readErr, bufio.ErrTooLong) {
-				sendClientEvent(ctx, events, Error(fmt.Sprintf("reading event stream: %v", readErr)))
+				sendClientEvent(ctx, events, agentruntime.Error(fmt.Sprintf("reading event stream: %v", readErr)))
 				return
 			}
 			// Replaying without a cursor can duplicate answers on older servers.
 			if since == nil {
 				if readErr != nil {
-					sendClientEvent(ctx, events, Error(fmt.Sprintf("reading event stream: %v", readErr)))
+					sendClientEvent(ctx, events, agentruntime.Error(fmt.Sprintf("reading event stream: %v", readErr)))
 				}
 				return
 			}
@@ -648,7 +649,7 @@ func (c *Client) streamSessionEvents(ctx context.Context, sessionID string, sinc
 				}
 				var httpErr *sessionEventHTTPError
 				if errors.As(err, &httpErr) && httpErr.status >= 400 && httpErr.status < 500 && httpErr.status != http.StatusTooManyRequests {
-					sendClientEvent(ctx, events, Error(fmt.Sprintf("reconnecting session event stream: %v", err)))
+					sendClientEvent(ctx, events, agentruntime.Error(fmt.Sprintf("reconnecting session event stream: %v", err)))
 					return
 				}
 				delay = min(2*delay, 5*time.Second)
@@ -658,7 +659,7 @@ func (c *Client) streamSessionEvents(ctx context.Context, sessionID string, sinc
 	return events, nil
 }
 
-func (c *Client) readSessionEventStream(ctx context.Context, resp *http.Response, events chan<- Event, since **uint64) (terminal bool, err error) {
+func (c *Client) readSessionEventStream(ctx context.Context, resp *http.Response, events chan<- agentruntime.Event, since **uint64) (terminal bool, err error) {
 	defer resp.Body.Close()
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxSSELineBytes)
@@ -669,7 +670,7 @@ func (c *Client) readSessionEventStream(ctx context.Context, resp *http.Response
 		if raw, ok := strings.CutPrefix(line, "id:"); ok {
 			seq, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
 			if err != nil {
-				sendClientEvent(ctx, events, Error("invalid session event cursor; reload the session snapshot"))
+				sendClientEvent(ctx, events, agentruntime.Error("invalid session event cursor; reload the session snapshot"))
 				return true, nil
 			}
 			id = &seq
@@ -684,18 +685,18 @@ func (c *Client) readSessionEventStream(ctx context.Context, resp *http.Response
 			Type string `json:"type"`
 		}
 		if err := json.Unmarshal([]byte(data), &base); err != nil {
-			sendClientEvent(ctx, events, Error(fmt.Sprintf("decoding session event: %v", err)))
+			sendClientEvent(ctx, events, agentruntime.Error(fmt.Sprintf("decoding session event: %v", err)))
 			return true, nil
 		}
 		if base.Type == "gap" {
-			sendClientEvent(ctx, events, Error(sessionEventGapError))
+			sendClientEvent(ctx, events, agentruntime.Error(sessionEventGapError))
 			return true, nil
 		}
 		if base.Type == "session_exited" {
 			return true, nil
 		}
 		if id == nil && *since != nil {
-			sendClientEvent(ctx, events, Error("session event stream has no cursor; cannot safely resume"))
+			sendClientEvent(ctx, events, agentruntime.Error("session event stream has no cursor; cannot safely resume"))
 			return true, nil
 		}
 		if id != nil && *since != nil && *id <= **since {
@@ -705,7 +706,7 @@ func (c *Client) readSessionEventStream(ctx context.Context, resp *http.Response
 		if create, ok := c.registry[base.Type]; ok {
 			event := create()
 			if err := json.Unmarshal([]byte(data), event); err != nil {
-				sendClientEvent(ctx, events, Error(fmt.Sprintf("decoding session event: %v", err)))
+				sendClientEvent(ctx, events, agentruntime.Error(fmt.Sprintf("decoding session event: %v", err)))
 				return true, nil
 			}
 			if !sendClientEvent(ctx, events, event) {

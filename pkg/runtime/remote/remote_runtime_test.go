@@ -1,4 +1,4 @@
-package runtime
+package remote
 
 import (
 	"context"
@@ -19,51 +19,52 @@ import (
 	"github.com/docker/docker-agent/pkg/api"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	agentruntime "github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-// runStreamRecordingClient is a stubRemoteClient variant that records the
+// runStreamRecordingClient is a stubBackend variant that records the
 // model ref forwarded to RunAgent / RunAgentWithAgentName and lets the test
 // inject a synthetic dispatch error so the early-error path is exercised.
 type runStreamRecordingClient struct {
-	stubRemoteClient
+	stubBackend
 
 	runErr        error
 	gotModel      string
 	gotInvocation int
 }
 
-func (c *runStreamRecordingClient) RunAgent(_ context.Context, _, _ string, _ []api.Message, model string) (<-chan Event, error) {
+func (c *runStreamRecordingClient) RunAgent(_ context.Context, _, _ string, _ []api.Message, model string) (<-chan agentruntime.Event, error) {
 	c.gotInvocation++
 	c.gotModel = model
 	if c.runErr != nil {
 		return nil, c.runErr
 	}
-	ch := make(chan Event)
+	ch := make(chan agentruntime.Event)
 	close(ch)
 	return ch, nil
 }
 
-func (c *runStreamRecordingClient) RunAgentWithAgentName(ctx context.Context, sessionID, agent, _ string, msgs []api.Message, model string) (<-chan Event, error) {
+func (c *runStreamRecordingClient) RunAgentWithAgentName(ctx context.Context, sessionID, agent, _ string, msgs []api.Message, model string) (<-chan agentruntime.Event, error) {
 	return c.RunAgent(ctx, sessionID, agent, msgs, model)
 }
 
-// TestRemoteRuntime_SetAgentModel_RetainsOverrideOnDispatchError pins the
+// TestRuntime_SetAgentModel_RetainsOverrideOnDispatchError pins the
 // fix for the silent-drop bug: when the next RunStream's HTTP dispatch
 // fails (network, auth, server unavailable), the queued override MUST
 // remain queued so the next attempt still applies the user's chosen
 // model. Clearing it eagerly would silently swallow the request.
-func TestRemoteRuntime_SetAgentModel_RetainsOverrideOnDispatchError(t *testing.T) {
+func TestRuntime_SetAgentModel_RetainsOverrideOnDispatchError(t *testing.T) {
 	t.Parallel()
 
 	client := &runStreamRecordingClient{
-		stubRemoteClient: stubRemoteClient{
+		stubBackend: stubBackend{
 			cfg: &latest.Config{Agents: latest.Agents{{Name: "test"}}},
 		},
 		runErr: errors.New("dial tcp: connection refused"),
 	}
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 
 	require.NoError(t, rt.SetAgentModel(t.Context(), "test", "openai/gpt-4o"))
@@ -93,14 +94,14 @@ func TestRemoteRuntime_SetAgentModel_RetainsOverrideOnDispatchError(t *testing.T
 	assert.Empty(t, client.gotModel, "override must clear after successful dispatch")
 }
 
-// TestRemoteRuntime_SetAgentModel_LatestQueuedWins guards the
+// TestRuntime_SetAgentModel_LatestQueuedWins guards the
 // concurrent-update path: if SetAgentModel is called between the
 // snapshot and the post-dispatch clear, the newer ref must NOT be
 // silently overwritten.
-func TestRemoteRuntime_SetAgentModel_LatestQueuedWins(t *testing.T) {
+func TestRuntime_SetAgentModel_LatestQueuedWins(t *testing.T) {
 	t.Parallel()
 
-	rt, err := NewRemoteRuntime(&stubRemoteClient{
+	rt, err := NewRuntime(&stubBackend{
 		cfg: &latest.Config{Agents: latest.Agents{{Name: "test"}}},
 	})
 	require.NoError(t, err)
@@ -114,11 +115,11 @@ func TestRemoteRuntime_SetAgentModel_LatestQueuedWins(t *testing.T) {
 	assert.Equal(t, "second", got)
 }
 
-// mcpPromptsClient is a stubRemoteClient variant returning MCP prompts the
+// mcpPromptsClient is a stubBackend variant returning MCP prompts the
 // way the HTTP client does: decoded into map[string]any, with each prompt a
 // nested map — never a concrete tools.PromptInfo.
 type mcpPromptsClient struct {
-	stubRemoteClient
+	stubBackend
 }
 
 func (c *mcpPromptsClient) GetSessionMCPPrompts(context.Context, string) (map[string]any, error) {
@@ -133,18 +134,18 @@ func (c *mcpPromptsClient) GetSessionMCPPrompts(context.Context, string) (map[st
 	}, nil
 }
 
-// TestRemoteRuntime_CurrentMCPPrompts pins the JSON-decoded-map conversion:
+// TestRuntime_CurrentMCPPrompts pins the JSON-decoded-map conversion:
 // values arrive as map[string]any, so a plain type assertion would silently
 // drop every prompt.
-func TestRemoteRuntime_CurrentMCPPrompts(t *testing.T) {
+func TestRuntime_CurrentMCPPrompts(t *testing.T) {
 	t.Parallel()
 
 	client := &mcpPromptsClient{
-		stubRemoteClient: stubRemoteClient{
+		stubBackend: stubBackend{
 			cfg: &latest.Config{Agents: latest.Agents{{Name: "test"}}},
 		},
 	}
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	rt.sessionID = "session-1"
 
@@ -157,7 +158,7 @@ func TestRemoteRuntime_CurrentMCPPrompts(t *testing.T) {
 	assert.True(t, prompts["review"].Arguments[0].Required)
 }
 
-func TestRemoteRuntime_BackgroundEventsSurviveTurnsWithoutReplayingHistory(t *testing.T) {
+func TestRuntime_BackgroundEventsSurviveTurnsWithoutReplayingHistory(t *testing.T) {
 	t.Parallel()
 
 	var runs, snapshots, subscriptions atomic.Int32
@@ -195,14 +196,14 @@ func TestRemoteRuntime_BackgroundEventsSurviveTurnsWithoutReplayingHistory(t *te
 	}))
 	t.Cleanup(srv.Close)
 	client := newTestClient(t, srv.URL)
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close()) })
-	background := make(chan Event, 4)
-	rt.OnBackgroundEvent(func(event Event) { background <- event })
+	background := make(chan agentruntime.Event, 4)
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { background <- event })
 
 	ctx, cancel := context.WithCancel(t.Context())
-	var foreground []Event
+	var foreground []agentruntime.Event
 	for event := range rt.RunStream(ctx, &session.Session{ID: "s"}) {
 		foreground = append(foreground, event)
 	}
@@ -216,7 +217,7 @@ func TestRemoteRuntime_BackgroundEventsSurviveTurnsWithoutReplayingHistory(t *te
 	close(deliverRecall)
 	select {
 	case event := <-background:
-		answer, ok := event.(*AgentChoiceEvent)
+		answer, ok := event.(*agentruntime.AgentChoiceEvent)
 		require.True(t, ok, "got %T", event)
 		assert.Equal(t, "recall answer", answer.Content)
 	case <-time.After(2 * time.Second):
@@ -237,7 +238,7 @@ func TestRemoteRuntime_BackgroundEventsSurviveTurnsWithoutReplayingHistory(t *te
 	}
 }
 
-func TestRemoteRuntime_BackgroundSubscriptionWaitsForEventLogAndDeliversElicitationOnce(t *testing.T) {
+func TestRuntime_BackgroundSubscriptionWaitsForEventLogAndDeliversElicitationOnce(t *testing.T) {
 	t.Parallel()
 
 	var logAvailable atomic.Bool
@@ -267,18 +268,18 @@ func TestRemoteRuntime_BackgroundSubscriptionWaitsForEventLogAndDeliversElicitat
 	}))
 	t.Cleanup(srv.Close)
 	client := newTestClient(t, srv.URL)
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close()) })
-	background := make(chan Event, 4)
-	rt.OnBackgroundEvent(func(event Event) { background <- event })
-	var foreground []Event
+	background := make(chan agentruntime.Event, 4)
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { background <- event })
+	var foreground []agentruntime.Event
 	for event := range rt.RunStream(t.Context(), &session.Session{ID: "s"}) {
 		foreground = append(foreground, event)
 	}
-	var requests []*ElicitationRequestEvent
+	var requests []*agentruntime.ElicitationRequestEvent
 	for _, event := range foreground {
-		if request, ok := event.(*ElicitationRequestEvent); ok {
+		if request, ok := event.(*agentruntime.ElicitationRequestEvent); ok {
 			requests = append(requests, request)
 		}
 	}
@@ -289,7 +290,7 @@ func TestRemoteRuntime_BackgroundSubscriptionWaitsForEventLogAndDeliversElicitat
 	}, 3*time.Second, time.Millisecond)
 	select {
 	case event := <-background:
-		request, ok := event.(*ElicitationRequestEvent)
+		request, ok := event.(*agentruntime.ElicitationRequestEvent)
 		require.True(t, ok, "got %T", event)
 		requests = append(requests, request)
 	default:
@@ -301,7 +302,7 @@ func TestRemoteRuntime_BackgroundSubscriptionWaitsForEventLogAndDeliversElicitat
 	require.GreaterOrEqual(t, attempts.Load(), int32(2))
 }
 
-func TestRemoteRuntime_BackgroundGapReconcilesSavedTextWithoutReplay(t *testing.T) {
+func TestRuntime_BackgroundGapReconcilesSavedTextWithoutReplay(t *testing.T) {
 	t.Parallel()
 
 	var runs, snapshots, subscriptions atomic.Int32
@@ -350,12 +351,12 @@ func TestRemoteRuntime_BackgroundGapReconcilesSavedTextWithoutReplay(t *testing.
 	}))
 	t.Cleanup(srv.Close)
 	client := newTestClient(t, srv.URL)
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close()) })
-	background := make(chan Event, 16)
-	rt.OnBackgroundEvent(func(event Event) { background <- event })
-	var foreground []Event
+	background := make(chan agentruntime.Event, 16)
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { background <- event })
+	var foreground []agentruntime.Event
 	for event := range rt.RunStream(t.Context(), &session.Session{ID: "s"}) {
 		foreground = append(foreground, event)
 	}
@@ -366,18 +367,18 @@ func TestRemoteRuntime_BackgroundGapReconcilesSavedTextWithoutReplay(t *testing.
 	case <-time.After(3 * time.Second):
 		t.Fatal("gap recovery did not reconnect")
 	}
-	var choices []*AgentChoiceEvent
+	var choices []*agentruntime.AgentChoiceEvent
 	var recovered int
 	deadline := time.After(3 * time.Second)
 	for len(choices) < 3 {
 		select {
 		case event := <-background:
 			switch event := event.(type) {
-			case *AgentChoiceEvent:
+			case *agentruntime.AgentChoiceEvent:
 				choices = append(choices, event)
-			case *WarningEvent:
+			case *agentruntime.WarningEvent:
 				assert.Contains(t, event.Message, "gap")
-			case *SessionRecoveredEvent:
+			case *agentruntime.SessionRecoveredEvent:
 				recovered++
 				assert.Equal(t, "s", event.SessionID)
 			default:
@@ -404,50 +405,50 @@ func TestRemoteMessageHistoryRejectsUnsafeRecovery(t *testing.T) {
 
 	for _, tc := range []struct {
 		name      string
-		delivered *AgentChoiceEvent
+		delivered *agentruntime.AgentChoiceEvent
 		savedID   string
 		saved     string
 	}{
-		{name: "unidentified delivered message", delivered: AgentChoice("root", "s", "partial").(*AgentChoiceEvent), savedID: "id", saved: "partial final"},
-		{name: "unidentified saved message", delivered: AgentChoice("root", "s", "partial", "id").(*AgentChoiceEvent), saved: "partial final"},
-		{name: "changed prefix", delivered: AgentChoice("root", "s", "partial", "id").(*AgentChoiceEvent), savedID: "id", saved: "rewritten final"},
+		{name: "unidentified delivered message", delivered: agentruntime.AgentChoice("root", "s", "partial").(*agentruntime.AgentChoiceEvent), savedID: "id", saved: "partial final"},
+		{name: "unidentified saved message", delivered: agentruntime.AgentChoice("root", "s", "partial", "id").(*agentruntime.AgentChoiceEvent), saved: "partial final"},
+		{name: "changed prefix", delivered: agentruntime.AgentChoice("root", "s", "partial", "id").(*agentruntime.AgentChoiceEvent), savedID: "id", saved: "rewritten final"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			history := newRemoteMessageHistory(nil)
-			require.True(t, history.deliver(tc.delivered, func(Event) bool { return true }))
+			require.True(t, history.deliver(tc.delivered, func(agentruntime.Event) bool { return true }))
 			snapshot := &api.SessionSnapshotResponse{ID: "s", Messages: []session.Message{
 				{Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: "new", Content: "must not partially replay"}},
 				{Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: tc.savedID, Content: tc.saved}},
 			}}
-			var got []Event
-			err := history.reconcile(snapshot, func(event Event) { got = append(got, event) })
+			var got []agentruntime.Event
+			err := history.reconcile(snapshot, func(event agentruntime.Event) { got = append(got, event) })
 			require.Error(t, err)
 			assert.Empty(t, got)
 		})
 	}
 }
 
-func TestRemoteRuntime_ForegroundEOFHasErrorStop(t *testing.T) {
+func TestRuntime_ForegroundEOFHasErrorStop(t *testing.T) {
 	t.Parallel()
 
 	client := &runStreamRecordingClient{}
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
-	var got []Event
+	var got []agentruntime.Event
 	for event := range rt.RunStream(t.Context(), &session.Session{ID: "s"}) {
 		got = append(got, event)
 	}
 	require.Len(t, got, 2)
-	assert.IsType(t, &ErrorEvent{}, got[0])
-	stop, ok := got[1].(*StreamStoppedEvent)
+	assert.IsType(t, &agentruntime.ErrorEvent{}, got[0])
+	stop, ok := got[1].(*agentruntime.StreamStoppedEvent)
 	require.True(t, ok)
 	assert.Equal(t, "error", stop.Reason)
 	assert.Equal(t, "s", stop.SessionID)
 	assert.Equal(t, 1, client.gotInvocation)
 }
 
-func TestRemoteRuntime_BackgroundGapWaitsForIdleAndCloseCancelsRecovery(t *testing.T) {
+func TestRuntime_BackgroundGapWaitsForIdleAndCloseCancelsRecovery(t *testing.T) {
 	t.Parallel()
 
 	var runs, snapshots, subscriptions atomic.Int32
@@ -478,11 +479,11 @@ func TestRemoteRuntime_BackgroundGapWaitsForIdleAndCloseCancelsRecovery(t *testi
 	}))
 	t.Cleanup(srv.Close)
 	client := newTestClient(t, srv.URL)
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close()) })
-	background := make(chan Event, 4)
-	rt.OnBackgroundEvent(func(event Event) { background <- event })
+	background := make(chan agentruntime.Event, 4)
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { background <- event })
 	for range rt.RunStream(t.Context(), &session.Session{ID: "s"}) {
 	}
 	select {
@@ -499,7 +500,7 @@ func TestRemoteRuntime_BackgroundGapWaitsForIdleAndCloseCancelsRecovery(t *testi
 	assert.Equal(t, int32(1), runs.Load())
 	assert.Equal(t, int32(1), subscriptions.Load(), "never advance the cursor from a running snapshot")
 	for _, event := range drainEvents(background) {
-		assert.IsType(t, &WarningEvent{}, event, "partial saved text must not be emitted")
+		assert.IsType(t, &agentruntime.WarningEvent{}, event, "partial saved text must not be emitted")
 	}
 }
 
@@ -507,14 +508,14 @@ func TestRemoteMessageHistoryPreservesKnownSubSessionScope(t *testing.T) {
 	t.Parallel()
 
 	history := newRemoteMessageHistory(nil)
-	require.True(t, history.deliver(AgentChoice("worker", "child", "partial ", "id"), func(Event) bool { return true }))
+	require.True(t, history.deliver(agentruntime.AgentChoice("worker", "child", "partial ", "id"), func(agentruntime.Event) bool { return true }))
 	snapshot := &api.SessionSnapshotResponse{ID: "parent", Messages: []session.Message{
 		{AgentName: "worker", Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: "id", Content: "partial final"}},
 	}}
-	var got []Event
-	require.NoError(t, history.reconcile(snapshot, func(event Event) { got = append(got, event) }))
+	var got []agentruntime.Event
+	require.NoError(t, history.reconcile(snapshot, func(event agentruntime.Event) { got = append(got, event) }))
 	require.Len(t, got, 1)
-	choice, ok := got[0].(*AgentChoiceEvent)
+	choice, ok := got[0].(*agentruntime.AgentChoiceEvent)
 	require.True(t, ok)
 	assert.Equal(t, "child", choice.SessionID)
 	assert.Equal(t, "final", choice.Content)
@@ -525,10 +526,10 @@ func TestRemoteMessageHistoryDeduplicatesElicitationEitherDeliveryOrder(t *testi
 
 	history := newRemoteMessageHistory(nil)
 	for _, id := range []string{"foreground-first", "background-first"} {
-		request := &ElicitationRequestEvent{ElicitationID: id}
+		request := &agentruntime.ElicitationRequestEvent{ElicitationID: id}
 		var deliveries int
 		for range 2 {
-			require.True(t, history.deliver(request, func(Event) bool {
+			require.True(t, history.deliver(request, func(agentruntime.Event) bool {
 				deliveries++
 				return true
 			}))
@@ -545,23 +546,23 @@ func TestRemoteMessageHistoryRejectsDuplicateSnapshotIDs(t *testing.T) {
 		{Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: "id", Content: "first"}},
 		{Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: "id", Content: "second"}},
 	}}
-	var got []Event
-	require.Error(t, history.reconcile(snapshot, func(event Event) { got = append(got, event) }))
+	var got []agentruntime.Event
+	require.Error(t, history.reconcile(snapshot, func(event agentruntime.Event) { got = append(got, event) }))
 	assert.Empty(t, got)
 }
 
-func TestRemoteRuntimeRetiredBackgroundSubscriptionDoesNotEmit(t *testing.T) {
+func TestRuntimeRetiredBackgroundSubscriptionDoesNotEmit(t *testing.T) {
 	t.Parallel()
-	rt, err := NewRemoteRuntime(&stubRemoteClient{})
+	rt, err := NewRuntime(&stubBackend{})
 	require.NoError(t, err)
 	canceled := make(chan struct{})
 	sub := &remoteEventSubscription{cancel: func() { close(canceled) }, sessionID: "old", history: newRemoteMessageHistory(nil)}
 	rt.background = sub
-	var delivered []Event
-	rt.OnBackgroundEvent(func(event Event) { delivered = append(delivered, event) })
+	var delivered []agentruntime.Event
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { delivered = append(delivered, event) })
 	rt.RetireBackgroundEvents()
 	<-canceled
-	rt.emitBackgroundEvent(sub, AgentChoice("root", "old", "OLD-ANSWER", "old"))
+	rt.emitBackgroundEvent(sub, agentruntime.AgentChoice("root", "old", "OLD-ANSWER", "old"))
 	require.Empty(t, delivered)
 	require.Nil(t, rt.background)
 }
@@ -575,13 +576,13 @@ func TestRemoteMessageHistoryUsesVisibleContent(t *testing.T) {
 	assert.True(t, history.complete["old"])
 	assert.False(t, history.complete["hidden"], "hidden-only text must not mask later visible chunks")
 	assert.Empty(t, history.content, "baseline needs IDs, not copies of old answers")
-	require.True(t, history.deliver(AgentChoice("root", "s", "answer<tool_call>PRIVATE", "new"), func(Event) bool { return true }))
-	var got []Event
+	require.True(t, history.deliver(agentruntime.AgentChoice("root", "s", "answer<tool_call>PRIVATE", "new"), func(agentruntime.Event) bool { return true }))
+	var got []agentruntime.Event
 	require.NoError(t, history.reconcile(&api.SessionSnapshotResponse{ID: "s", Messages: []session.Message{
 		msg("old", "visible<tool_call>PRIVATE"), msg("new", "answer<tool_call>PRIVATE MORE"), msg("recovered", "safe<tool_call>SECRET"),
-	}}, func(event Event) { got = append(got, event) }))
+	}}, func(event agentruntime.Event) { got = append(got, event) }))
 	require.Len(t, got, 1)
-	assert.Equal(t, "safe", got[0].(*AgentChoiceEvent).Content)
+	assert.Equal(t, "safe", got[0].(*agentruntime.AgentChoiceEvent).Content)
 	assert.Empty(t, history.content, "finalized answers retain only dedup IDs")
 }
 
@@ -589,70 +590,70 @@ func TestRemoteMessageHistoryRetentionFailsClosed(t *testing.T) {
 	t.Parallel()
 	history := newRemoteMessageHistory(nil)
 	for i := range remoteHistoryMaxMessages + 2 {
-		require.True(t, history.deliver(AgentChoice("root", "s", "answer", strconv.Itoa(i)), func(Event) bool { return true }))
+		require.True(t, history.deliver(agentruntime.AgentChoice("root", "s", "answer", strconv.Itoa(i)), func(agentruntime.Event) bool { return true }))
 	}
 	assert.Empty(t, history.content)
 	assert.Empty(t, history.sessions)
 	assert.Zero(t, history.bytes)
-	var got []Event
-	err := history.reconcile(&api.SessionSnapshotResponse{ID: "s"}, func(event Event) { got = append(got, event) })
+	var got []agentruntime.Event
+	err := history.reconcile(&api.SessionSnapshotResponse{ID: "s"}, func(event agentruntime.Event) { got = append(got, event) })
 	require.ErrorContains(t, err, "retention limit")
 	assert.Empty(t, got, "forgotten IDs must never cause blind replay")
 }
 
-type recoveryRemoteClient struct {
+type recoveryBackend struct {
 	runStreamRecordingClient
 
 	snapshot *api.SessionSnapshotResponse
 	openErr  error
-	streams  chan Event
+	streams  chan agentruntime.Event
 	opened   chan struct{}
 }
 
-func (c *recoveryRemoteClient) GetSessionSnapshot(context.Context, string) (*api.SessionSnapshotResponse, error) {
+func (c *recoveryBackend) GetSessionSnapshot(context.Context, string) (*api.SessionSnapshotResponse, error) {
 	return c.snapshot, nil
 }
 
-func (c *recoveryRemoteClient) StreamSessionEventsSince(context.Context, string, uint64) (<-chan Event, error) {
+func (c *recoveryBackend) StreamSessionEventsSince(context.Context, string, uint64) (<-chan agentruntime.Event, error) {
 	if c.opened != nil {
 		close(c.opened)
 	}
 	return c.streams, c.openErr
 }
 
-func TestRemoteRuntimeRecoveryStopsReplayAfterRetirement(t *testing.T) {
+func TestRuntimeRecoveryStopsReplayAfterRetirement(t *testing.T) {
 	t.Parallel()
-	client := &recoveryRemoteClient{snapshot: &api.SessionSnapshotResponse{ID: "s", Messages: []session.Message{
+	client := &recoveryBackend{snapshot: &api.SessionSnapshotResponse{ID: "s", Messages: []session.Message{
 		{Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: "first", Content: "first"}},
 		{Message: chat.Message{Role: chat.MessageRoleAssistant, MessageID: "second", Content: "stale"}},
 	}}}
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	sub := &remoteEventSubscription{sessionID: "s", history: newRemoteMessageHistory(nil), cancel: func() {}}
 	rt.background = sub
-	var got []Event
-	rt.OnBackgroundEvent(func(event Event) {
+	var got []agentruntime.Event
+	rt.OnBackgroundEvent(func(event agentruntime.Event) {
 		got = append(got, event)
 		rt.RetireBackgroundEvents()
 	})
 	_, err = rt.reconcileIdleSnapshot(t.Context(), sub, client)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Len(t, got, 1, "captured handler must not receive the rest of a retired snapshot")
-	assert.Equal(t, "first", got[0].(*AgentChoiceEvent).Content)
+	assert.Equal(t, "first", got[0].(*agentruntime.AgentChoiceEvent).Content)
 }
 
-func TestRemoteRuntimeFailedBackgroundSubscriptionCanRestart(t *testing.T) {
+func TestRuntimeFailedBackgroundSubscriptionCanRestart(t *testing.T) {
 	t.Parallel()
-	client := &recoveryRemoteClient{snapshot: &api.SessionSnapshotResponse{ID: "s"}, openErr: &sessionEventHTTPError{status: http.StatusForbidden}}
-	rt, err := NewRemoteRuntime(client)
+	client := &recoveryBackend{snapshot: &api.SessionSnapshotResponse{ID: "s"}, openErr: &sessionEventHTTPError{status: http.StatusForbidden}}
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close()) })
-	delivered := make(chan Event, 4)
-	rt.OnBackgroundEvent(func(event Event) { delivered <- event })
+	delivered := make(chan agentruntime.Event, 4)
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { delivered <- event })
 	rt.startBackgroundEvents(t.Context(), "s")
 	select {
 	case event := <-delivered:
-		assert.IsType(t, &ErrorEvent{}, event)
+		assert.IsType(t, &agentruntime.ErrorEvent{}, event)
 	case <-time.After(2 * time.Second):
 		t.Fatal("subscription did not fail")
 	}
@@ -662,41 +663,41 @@ func TestRemoteRuntimeFailedBackgroundSubscriptionCanRestart(t *testing.T) {
 		return rt.background == nil
 	}, time.Second, time.Millisecond)
 	client.openErr = nil
-	client.streams = make(chan Event, 1)
-	client.streams <- Warning("retry succeeded", "root")
+	client.streams = make(chan agentruntime.Event, 1)
+	client.streams <- agentruntime.Warning("retry succeeded", "root")
 	close(client.streams)
 	rt.startBackgroundEvents(t.Context(), "s")
 	select {
 	case event := <-delivered:
-		assert.Equal(t, "retry succeeded", event.(*WarningEvent).Message)
+		assert.Equal(t, "retry succeeded", event.(*agentruntime.WarningEvent).Message)
 	case <-time.After(2 * time.Second):
 		t.Fatal("subscription did not restart")
 	}
 }
 
-func TestRemoteRuntimeRecoveryIsAnIdleResetNotAStop(t *testing.T) {
+func TestRuntimeRecoveryIsAnIdleResetNotAStop(t *testing.T) {
 	t.Parallel()
-	client := &recoveryRemoteClient{snapshot: &api.SessionSnapshotResponse{ID: "s", LastEventSeq: 42}}
-	rt, err := NewRemoteRuntime(client)
+	client := &recoveryBackend{snapshot: &api.SessionSnapshotResponse{ID: "s", LastEventSeq: 42}}
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	sub := &remoteEventSubscription{sessionID: "s", history: newRemoteMessageHistory(nil), cancel: func() {}}
 	rt.background = sub
 	depth := map[string]int{}
 	var stops, resets int
-	rt.OnBackgroundEvent(func(event Event) {
+	rt.OnBackgroundEvent(func(event agentruntime.Event) {
 		switch event := event.(type) {
-		case *StreamStartedEvent:
+		case *agentruntime.StreamStartedEvent:
 			depth[event.SessionID]++
-		case *StreamStoppedEvent:
+		case *agentruntime.StreamStoppedEvent:
 			stops++
 			depth[event.SessionID]--
-		case *SessionRecoveredEvent:
+		case *agentruntime.SessionRecoveredEvent:
 			resets++
 			clear(depth)
 		}
 	})
 	for _, id := range []string{"s", "s", "child"} {
-		rt.emitBackgroundEvent(sub, StreamStarted(id, "root"))
+		rt.emitBackgroundEvent(sub, agentruntime.StreamStarted(id, "root"))
 	}
 	assert.Equal(t, 2, depth["s"])
 	_, err = rt.reconcileIdleSnapshot(t.Context(), sub, client)
@@ -707,7 +708,7 @@ func TestRemoteRuntimeRecoveryIsAnIdleResetNotAStop(t *testing.T) {
 }
 
 type elicitationRecordingClient struct {
-	stubRemoteClient
+	stubBackend
 
 	mu      sync.Mutex
 	ids     []string
@@ -722,14 +723,14 @@ func (c *elicitationRecordingClient) ResumeElicitation(_ context.Context, _ stri
 	return nil
 }
 
-func TestRemoteRuntimeOAuthResponsesAreCorrelated(t *testing.T) {
+func TestRuntimeOAuthResponsesAreCorrelated(t *testing.T) {
 	t.Parallel()
 	client := &elicitationRecordingClient{}
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	rt.sessionID = "s"
 	for _, id := range []string{"oauth-a", "oauth-b"} {
-		rt.trackOAuthElicitation(&ElicitationRequestEvent{ElicitationID: id, Meta: map[string]any{"docker-agent/type": "oauth_flow"}})
+		rt.trackOAuthElicitation(&agentruntime.ElicitationRequestEvent{ElicitationID: id, Meta: map[string]any{"docker-agent/type": "oauth_flow"}})
 	}
 	// A form response must not start the unrelated OAuth flow.
 	require.NoError(t, rt.ResumeElicitation(t.Context(), tools.ElicitationActionAccept, nil, "form"))
@@ -746,16 +747,16 @@ func TestRemoteRuntimeOAuthResponsesAreCorrelated(t *testing.T) {
 	assert.Empty(t, rt.pendingOAuthElicitations, "declining must not start OAuth")
 }
 
-func TestRemoteRuntimeDuplicateElicitationDoesNotRestorePendingOAuth(t *testing.T) {
+func TestRuntimeDuplicateElicitationDoesNotRestorePendingOAuth(t *testing.T) {
 	t.Parallel()
-	rt, err := NewRemoteRuntime(&elicitationRecordingClient{})
+	rt, err := NewRuntime(&elicitationRecordingClient{})
 	require.NoError(t, err)
 	rt.sessionID = "s"
 	sub := &remoteEventSubscription{sessionID: "s", history: newRemoteMessageHistory(nil), cancel: func() {}}
 	rt.background = sub
-	var got []Event
-	rt.OnBackgroundEvent(func(event Event) { got = append(got, event) })
-	request := &ElicitationRequestEvent{ElicitationID: "oauth", Meta: map[string]any{"docker-agent/type": "oauth_flow"}}
+	var got []agentruntime.Event
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { got = append(got, event) })
+	request := &agentruntime.ElicitationRequestEvent{ElicitationID: "oauth", Meta: map[string]any{"docker-agent/type": "oauth_flow"}}
 	rt.emitBackgroundEvent(sub, request)
 	require.NoError(t, rt.ResumeElicitation(t.Context(), tools.ElicitationActionDecline, nil, "oauth"))
 	rt.emitBackgroundEvent(sub, request)
@@ -766,13 +767,13 @@ func TestRemoteRuntimeDuplicateElicitationDoesNotRestorePendingOAuth(t *testing.
 func TestRemoteMessageHistoryReleasesStoppedTextAndKeepsNestedScope(t *testing.T) {
 	t.Parallel()
 	history := newRemoteMessageHistory(nil)
-	for _, event := range []Event{
-		AgentChoice("root", "s", "answer", "root"),
-		AgentChoice("root", "s", "<tool_call>PRIVATE", "hidden"),
-		AgentChoice("worker", "child", "partial", "child"),
-		StreamStopped("s", "root", ""),
+	for _, event := range []agentruntime.Event{
+		agentruntime.AgentChoice("root", "s", "answer", "root"),
+		agentruntime.AgentChoice("root", "s", "<tool_call>PRIVATE", "hidden"),
+		agentruntime.AgentChoice("worker", "child", "partial", "child"),
+		agentruntime.StreamStopped("s", "root", ""),
 	} {
-		require.True(t, history.deliver(event, func(Event) bool { return true }))
+		require.True(t, history.deliver(event, func(agentruntime.Event) bool { return true }))
 	}
 	assert.True(t, history.complete["root"])
 	assert.False(t, history.complete["hidden"])
@@ -785,14 +786,14 @@ func TestRemoteMessageHistoryReleasesStoppedTextAndKeepsNestedScope(t *testing.T
 func TestRemoteMessageHistoryNestedStopDoesNotCompleteOuterMessage(t *testing.T) {
 	t.Parallel()
 	history := newRemoteMessageHistory(nil)
-	for _, event := range []Event{StreamStarted("s", "root"), StreamStarted("s", "worker"), AgentChoice("root", "s", "partial", "id"), StreamStopped("s", "worker", "")} {
-		require.True(t, history.deliver(event, func(Event) bool { return true }))
+	for _, event := range []agentruntime.Event{agentruntime.StreamStarted("s", "root"), agentruntime.StreamStarted("s", "worker"), agentruntime.AgentChoice("root", "s", "partial", "id"), agentruntime.StreamStopped("s", "worker", "")} {
+		require.True(t, history.deliver(event, func(agentruntime.Event) bool { return true }))
 	}
 	assert.False(t, history.complete["id"])
-	var got []Event
-	require.True(t, history.deliver(AgentChoice("root", "s", " final", "id"), func(event Event) bool { got = append(got, event); return true }))
+	var got []agentruntime.Event
+	require.True(t, history.deliver(agentruntime.AgentChoice("root", "s", " final", "id"), func(event agentruntime.Event) bool { got = append(got, event); return true }))
 	require.Len(t, got, 1)
-	require.True(t, history.deliver(StreamStopped("s", "root", ""), func(Event) bool { return true }))
+	require.True(t, history.deliver(agentruntime.StreamStopped("s", "root", ""), func(agentruntime.Event) bool { return true }))
 	assert.True(t, history.complete["id"])
 	assert.Empty(t, history.content)
 	assert.Empty(t, history.streamDepth)
@@ -804,25 +805,25 @@ func TestRemoteMessageHistoryElicitationRetentionDoesNotPermitDuplicates(t *test
 	for i := range remoteHistoryMaxElicitations {
 		history.elicitations[strconv.Itoa(i)] = true
 	}
-	var got []Event
-	request := &ElicitationRequestEvent{ElicitationID: "overflow", Meta: map[string]any{"docker-agent/type": "oauth_flow"}}
-	require.False(t, history.deliver(request, func(event Event) bool { got = append(got, event); return true }))
+	var got []agentruntime.Event
+	request := &agentruntime.ElicitationRequestEvent{ElicitationID: "overflow", Meta: map[string]any{"docker-agent/type": "oauth_flow"}}
+	require.False(t, history.deliver(request, func(event agentruntime.Event) bool { got = append(got, event); return true }))
 	require.Len(t, got, 1)
-	assert.IsType(t, &ErrorEvent{}, got[0], "unknown request cannot bypass bounded duplicate protection")
+	assert.IsType(t, &agentruntime.ErrorEvent{}, got[0], "unknown request cannot bypass bounded duplicate protection")
 	assert.Len(t, history.elicitations, remoteHistoryMaxElicitations)
 }
 
-func TestRemoteRuntimeRootRecoveryPreservesDetachedOAuthRequests(t *testing.T) {
+func TestRuntimeRootRecoveryPreservesDetachedOAuthRequests(t *testing.T) {
 	t.Parallel()
 	client := &elicitationRecordingClient{}
-	rt, err := NewRemoteRuntime(client)
+	rt, err := NewRuntime(client)
 	require.NoError(t, err)
 	rt.sessionID = "root"
 	sub := &remoteEventSubscription{sessionID: "root", history: newRemoteMessageHistory(nil), cancel: func() {}}
 	rt.background = sub
-	var got []Event
-	rt.OnBackgroundEvent(func(event Event) { got = append(got, event) })
-	requests := []*ElicitationRequestEvent{
+	var got []agentruntime.Event
+	rt.OnBackgroundEvent(func(event agentruntime.Event) { got = append(got, event) })
+	requests := []*agentruntime.ElicitationRequestEvent{
 		{SessionID: "root", ElicitationID: "foreground"},
 		{ElicitationID: "legacy-foreground"},
 		{SessionID: "detached-a", ElicitationID: "oauth-a", ServerElicitationID: "wire-id"},
@@ -832,11 +833,11 @@ func TestRemoteRuntimeRootRecoveryPreservesDetachedOAuthRequests(t *testing.T) {
 		request.Meta = map[string]any{"docker-agent/type": "oauth_flow"}
 		require.True(t, rt.emitBackgroundEvent(sub, request))
 	}
-	snapshotClient := &recoveryRemoteClient{snapshot: &api.SessionSnapshotResponse{ID: "root", LastEventSeq: 42}}
+	snapshotClient := &recoveryBackend{snapshot: &api.SessionSnapshotResponse{ID: "root", LastEventSeq: 42}}
 	_, err = rt.reconcileIdleSnapshot(t.Context(), sub, snapshotClient)
 	require.NoError(t, err)
 	require.Len(t, got, 5)
-	assert.IsType(t, &SessionRecoveredEvent{}, got[4])
+	assert.IsType(t, &agentruntime.SessionRecoveredEvent{}, got[4])
 	assert.NotContains(t, rt.pendingOAuthElicitations, "foreground")
 	assert.NotContains(t, rt.pendingOAuthElicitations, "legacy-foreground")
 	require.Len(t, rt.pendingOAuthElicitations, 2, "root idleness does not complete detached requests")
@@ -858,10 +859,10 @@ func TestRemoteMessageHistoryBoundsUnmatchedStreamStarts(t *testing.T) {
 	t.Parallel()
 	history := newRemoteMessageHistory(nil)
 	for range remoteHistoryMaxMessages + 2 {
-		require.True(t, history.deliver(StreamStarted("s", "root"), func(Event) bool { return true }))
+		require.True(t, history.deliver(agentruntime.StreamStarted("s", "root"), func(agentruntime.Event) bool { return true }))
 	}
 	assert.Empty(t, history.streamDepth)
-	require.ErrorContains(t, history.reconcile(&api.SessionSnapshotResponse{ID: "s"}, func(Event) {
+	require.ErrorContains(t, history.reconcile(&api.SessionSnapshotResponse{ID: "s"}, func(agentruntime.Event) {
 		t.Fatal("overflowed history must not replay messages")
 	}), "retention limit")
 }

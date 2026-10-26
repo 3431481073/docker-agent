@@ -1,4 +1,4 @@
-package runtime
+package remote
 
 import (
 	"cmp"
@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/effort"
+	agentruntime "github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
@@ -27,21 +28,21 @@ import (
 	"github.com/docker/docker-agent/pkg/tools/mcp/oauthflow"
 )
 
-// RemoteRuntime implements the Runtime interface using a remote client.
-// It works with any client that implements the RemoteClient interface,
+// Runtime implements the Runtime interface using a remote client.
+// It works with any client that implements the Backend interface,
 // including both HTTP (Client) and Connect-RPC (ConnectRPCClient) clients.
-type RemoteRuntime struct {
-	client                   RemoteClient
+type Runtime struct {
+	client                   Backend
 	currentAgent             string
 	agentFilename            string
 	sessionID                string
 	team                     *team.Team
-	pendingOAuthElicitations map[string]*ElicitationRequestEvent
+	pendingOAuthElicitations map[string]*agentruntime.ElicitationRequestEvent
 	oauthMu                  sync.Mutex
 
 	// pendingModelOverride is the model ref to apply to the current agent
-	// on the next [RemoteRuntime.RunStream] call. It is set by
-	// [RemoteRuntime.SetAgentModel] and consumed once the override has
+	// on the next [Runtime.RunStream] call. It is set by
+	// [Runtime.SetAgentModel] and consumed once the override has
 	// been forwarded to the server, which persists it server-side as the
 	// session's per-agent override.
 	pendingMu            sync.Mutex
@@ -58,16 +59,16 @@ type RemoteRuntime struct {
 	reconcileMu       sync.RWMutex // snapshots must not race foreground delivery
 	backgroundInit    sync.Mutex
 	backgroundMu      sync.Mutex
-	backgroundHandler func(Event)
+	backgroundHandler func(agentruntime.Event)
 	background        *remoteEventSubscription
 	closed            bool
 }
 
-// Cursor-based subscriptions are optional so other RemoteClient implementations
+// Cursor-based subscriptions are optional so other Backend implementations
 // do not accidentally replay foreground history through the background sink.
 type remoteEventClient interface {
 	GetSessionSnapshot(ctx context.Context, sessionID string) (*api.SessionSnapshotResponse, error)
-	StreamSessionEventsSince(ctx context.Context, sessionID string, since uint64) (<-chan Event, error)
+	StreamSessionEventsSince(ctx context.Context, sessionID string, since uint64) (<-chan agentruntime.Event, error)
 }
 
 type remoteEventSubscription struct {
@@ -139,18 +140,18 @@ func recoverableAssistantText(msg session.Message) bool {
 		len(msg.Message.ToolCalls) == 0 && msg.Message.FunctionCall == nil
 }
 
-func (h *remoteMessageHistory) deliver(event Event, send func(Event) bool) bool {
+func (h *remoteMessageHistory) deliver(event agentruntime.Event, send func(agentruntime.Event) bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	request, isElicitation := event.(*ElicitationRequestEvent)
+	request, isElicitation := event.(*agentruntime.ElicitationRequestEvent)
 	if isElicitation && request.ElicitationID != "" && h.elicitations[request.ElicitationID] {
 		return true
 	}
 	if isElicitation && request.ElicitationID != "" && len(h.elicitations) >= remoteHistoryMaxElicitations {
-		send(Error("remote elicitation history exceeded its retention limit; interaction was not delivered"))
+		send(agentruntime.Error("remote elicitation history exceeded its retention limit; interaction was not delivered"))
 		return false
 	}
-	choice, ok := event.(*AgentChoiceEvent)
+	choice, ok := event.(*agentruntime.AgentChoiceEvent)
 	if ok && choice.MessageID != "" && h.complete[choice.MessageID] {
 		return true // already restored from a snapshot
 	}
@@ -160,14 +161,14 @@ func (h *remoteMessageHistory) deliver(event Event, send func(Event) bool) bool 
 	if isElicitation && request.ElicitationID != "" {
 		h.elicitations[request.ElicitationID] = true
 	}
-	if started, ok := event.(*StreamStartedEvent); ok && h.retentionErr == nil {
+	if started, ok := event.(*agentruntime.StreamStartedEvent); ok && h.retentionErr == nil {
 		if depth := h.streamDepth[started.SessionID]; depth < remoteHistoryMaxMessages {
 			h.streamDepth[started.SessionID]++
 		} else {
 			h.retentionErr = errors.New("remote recovery history exceeded its retention limit")
 		}
 	}
-	if stopped, ok := event.(*StreamStoppedEvent); ok {
+	if stopped, ok := event.(*agentruntime.StreamStoppedEvent); ok {
 		if depth := h.streamDepth[stopped.SessionID]; depth > 1 {
 			h.streamDepth[stopped.SessionID]--
 			return true
@@ -203,7 +204,7 @@ func (h *remoteMessageHistory) deliver(event Event, send func(Event) bool) bool 
 	return true
 }
 
-func (h *remoteMessageHistory) reconcile(snapshot *api.SessionSnapshotResponse, send func(Event)) error {
+func (h *remoteMessageHistory) reconcile(snapshot *api.SessionSnapshotResponse, send func(agentruntime.Event)) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.retentionErr != nil {
@@ -250,7 +251,7 @@ func (h *remoteMessageHistory) reconcile(snapshot *api.SessionSnapshotResponse, 
 		}
 		if suffix := strings.TrimPrefix(chat.VisibleAssistantContent(msg.Message.Content), delivered); suffix != "" {
 			sessionID := cmp.Or(h.sessions[id], snapshot.ID)
-			send(AgentChoice(msg.AgentName, sessionID, suffix, id))
+			send(agentruntime.AgentChoice(msg.AgentName, sessionID, suffix, id))
 		}
 		delete(h.content, id)
 		delete(h.sessions, id)
@@ -261,31 +262,31 @@ func (h *remoteMessageHistory) reconcile(snapshot *api.SessionSnapshotResponse, 
 	return nil
 }
 
-// RemoteRuntimeOption is a function for configuring the RemoteRuntime
-type RemoteRuntimeOption func(*RemoteRuntime)
+// Option is a function for configuring the Runtime
+type Option func(*Runtime)
 
 // WithRemoteCurrentAgent sets the current agent name
-func WithRemoteCurrentAgent(agentName string) RemoteRuntimeOption {
-	return func(r *RemoteRuntime) {
+func WithRemoteCurrentAgent(agentName string) Option {
+	return func(r *Runtime) {
 		r.currentAgent = agentName
 	}
 }
 
 // WithRemoteAgentFilename sets the agent filename to use with the remote API
-func WithRemoteAgentFilename(filename string) RemoteRuntimeOption {
-	return func(r *RemoteRuntime) {
+func WithRemoteAgentFilename(filename string) Option {
+	return func(r *Runtime) {
 		r.agentFilename = filename
 	}
 }
 
-// NewRemoteRuntime creates a new remote runtime that implements the Runtime interface.
-// It accepts any client that implements the RemoteClient interface.
-func NewRemoteRuntime(client RemoteClient, opts ...RemoteRuntimeOption) (*RemoteRuntime, error) {
+// NewRuntime creates a new remote runtime that implements the Runtime interface.
+// It accepts any client that implements the Backend interface.
+func NewRuntime(client Backend, opts ...Option) (*Runtime, error) {
 	if client == nil {
 		return nil, errors.New("client cannot be nil")
 	}
 
-	r := &RemoteRuntime{
+	r := &Runtime{
 		client:        client,
 		agentFilename: "agent.yaml",
 		team:          team.New(),
@@ -302,7 +303,7 @@ func NewRemoteRuntime(client RemoteClient, opts ...RemoteRuntimeOption) (*Remote
 // team. When no specific agent has been selected, both come from the team's
 // first agent — the server owns the notion of "default agent" instead of the
 // client hard-coding the historical "root" name.
-func (r *RemoteRuntime) resolvedAgent(ctx context.Context) (string, latest.AgentConfig) {
+func (r *Runtime) resolvedAgent(ctx context.Context) (string, latest.AgentConfig) {
 	cfg := r.readCurrentAgentConfig(ctx)
 	return cmp.Or(r.currentAgent, cfg.Name), cfg
 }
@@ -311,7 +312,7 @@ func (r *RemoteRuntime) resolvedAgent(ctx context.Context) (string, latest.Agent
 // When no specific agent has been selected, it falls back to the first agent
 // declared by the remote team config. The remote lookup happens at most once;
 // the result is cached so subsequent calls are O(1).
-func (r *RemoteRuntime) CurrentAgentName(ctx context.Context) string {
+func (r *Runtime) CurrentAgentName(ctx context.Context) string {
 	if r.currentAgent != "" {
 		return r.currentAgent
 	}
@@ -329,9 +330,9 @@ func (r *RemoteRuntime) CurrentAgentName(ctx context.Context) string {
 	return name
 }
 
-func (r *RemoteRuntime) CurrentAgentInfo(ctx context.Context) CurrentAgentInfo {
+func (r *Runtime) CurrentAgentInfo(ctx context.Context) agentruntime.CurrentAgentInfo {
 	name, cfg := r.resolvedAgent(ctx)
-	return CurrentAgentInfo{
+	return agentruntime.CurrentAgentInfo{
 		Name:        name,
 		Description: cfg.Description,
 		Commands:    cfg.Commands,
@@ -344,7 +345,7 @@ func (r *RemoteRuntime) CurrentAgentInfo(ctx context.Context) CurrentAgentInfo {
 // fetch the team config (network error, auth failure, missing remote) is
 // propagated rather than silently accepted — the whole point of this check
 // is closing that silent-breakage gap.
-func (r *RemoteRuntime) SetCurrentAgent(ctx context.Context, agentName string) error {
+func (r *Runtime) SetCurrentAgent(ctx context.Context, agentName string) error {
 	cfg, err := r.client.GetAgent(ctx, r.agentFilename)
 	if err != nil {
 		return fmt.Errorf("validate agent %q against remote team: %w", agentName, err)
@@ -365,7 +366,7 @@ func (r *RemoteRuntime) SetCurrentAgent(ctx context.Context, agentName string) e
 }
 
 // CurrentAgentTools returns the tools for the current agent from the session.
-func (r *RemoteRuntime) CurrentAgentTools(ctx context.Context) ([]tools.Tool, error) {
+func (r *Runtime) CurrentAgentTools(ctx context.Context) ([]tools.Tool, error) {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return nil, nil
@@ -376,12 +377,12 @@ func (r *RemoteRuntime) CurrentAgentTools(ctx context.Context) ([]tools.Tool, er
 // CurrentAgentToolsetStatuses is not implemented for remote runtimes; the
 // remote server owns the toolset lifecycle. Returns an empty slice so
 // callers (TUI) can show an explanatory empty state without erroring.
-func (r *RemoteRuntime) CurrentAgentToolsetStatuses() []tools.ToolsetStatus {
+func (r *Runtime) CurrentAgentToolsetStatuses() []tools.ToolsetStatus {
 	return nil
 }
 
 // RestartToolset restarts a toolset on the remote server.
-func (r *RemoteRuntime) RestartToolset(ctx context.Context, toolsetName string) error {
+func (r *Runtime) RestartToolset(ctx context.Context, toolsetName string) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -390,15 +391,15 @@ func (r *RemoteRuntime) RestartToolset(ctx context.Context, toolsetName string) 
 }
 
 // EmitStartupInfo emits initial agent, team, and toolset information
-func (r *RemoteRuntime) EmitStartupInfo(ctx context.Context, _ *session.Session, events EventSink) {
+func (r *Runtime) EmitStartupInfo(ctx context.Context, _ *session.Session, events agentruntime.EventSink) {
 	agentName, cfg := r.resolvedAgent(ctx)
 
-	events.Emit(AgentInfo(agentName, cfg.Model, cfg.Description, cfg.WelcomeMessage))
-	events.Emit(TeamInfo(r.agentDetailsFromConfig(ctx), agentName))
+	events.Emit(agentruntime.AgentInfo(agentName, cfg.Model, cfg.Description, cfg.WelcomeMessage))
+	events.Emit(agentruntime.TeamInfo(r.agentDetailsFromConfig(ctx), agentName))
 
 	// Emit a loading indicator while we fetch the real tool count from the server.
 	if len(cfg.Toolsets) > 0 {
-		events.Emit(ToolsetInfo(0, true, agentName))
+		events.Emit(agentruntime.ToolsetInfo(0, true, agentName))
 	}
 
 	toolCount, err := r.client.GetAgentToolCount(ctx, r.agentFilename, agentName)
@@ -407,25 +408,25 @@ func (r *RemoteRuntime) EmitStartupInfo(ctx context.Context, _ *session.Session,
 		return
 	}
 
-	events.Emit(ToolsetInfo(toolCount, false, agentName))
+	events.Emit(agentruntime.ToolsetInfo(toolCount, false, agentName))
 }
 
 // EmitAgentInfo emits agent and team info without re-fetching tool counts.
-func (r *RemoteRuntime) EmitAgentInfo(ctx context.Context, events EventSink) {
+func (r *Runtime) EmitAgentInfo(ctx context.Context, events agentruntime.EventSink) {
 	agentName, cfg := r.resolvedAgent(ctx)
-	events.Emit(AgentInfo(agentName, cfg.Model, cfg.Description, cfg.WelcomeMessage))
-	events.Emit(TeamInfo(r.agentDetailsFromConfig(ctx), agentName))
+	events.Emit(agentruntime.AgentInfo(agentName, cfg.Model, cfg.Description, cfg.WelcomeMessage))
+	events.Emit(agentruntime.TeamInfo(r.agentDetailsFromConfig(ctx), agentName))
 }
 
-func (r *RemoteRuntime) agentDetailsFromConfig(ctx context.Context) []AgentDetails {
+func (r *Runtime) agentDetailsFromConfig(ctx context.Context) []agentruntime.AgentDetails {
 	cfg, err := r.client.GetAgent(ctx, r.agentFilename)
 	if err != nil {
 		return nil
 	}
 
-	var details []AgentDetails
+	var details []agentruntime.AgentDetails
 	for _, agent := range cfg.Agents {
-		info := AgentDetails{
+		info := agentruntime.AgentDetails{
 			Name:        agent.Name,
 			Description: agent.Description,
 			Commands:    agent.Commands,
@@ -448,7 +449,7 @@ func (r *RemoteRuntime) agentDetailsFromConfig(ctx context.Context) []AgentDetai
 // When no specific agent has been selected, it falls back to the first agent
 // in the team — letting the server own the notion of "default agent" instead
 // of hard-coding the historical "root" name.
-func (r *RemoteRuntime) readCurrentAgentConfig(ctx context.Context) latest.AgentConfig {
+func (r *Runtime) readCurrentAgentConfig(ctx context.Context) latest.AgentConfig {
 	cfg, err := r.client.GetAgent(ctx, r.agentFilename)
 	if err != nil || len(cfg.Agents) == 0 {
 		return latest.AgentConfig{}
@@ -468,9 +469,9 @@ func (r *RemoteRuntime) readCurrentAgentConfig(ctx context.Context) latest.Agent
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
-func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan Event {
+func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan agentruntime.Event {
 	slog.DebugContext(ctx, "Starting remote runtime stream", "agent", r.currentAgent, "session_id", r.activeSessionID())
-	events := make(chan Event, defaultEventChannelCapacity)
+	events := make(chan agentruntime.Event, defaultEventChannelCapacity)
 
 	go func() {
 		defer close(events)
@@ -498,7 +499,7 @@ func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-
 		model := r.pendingModelOverride
 		r.pendingMu.Unlock()
 
-		var streamChan <-chan Event
+		var streamChan <-chan agentruntime.Event
 		var err error
 
 		if r.currentAgent != "" {
@@ -508,7 +509,7 @@ func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-
 		}
 
 		if err != nil {
-			sendClientEvent(ctx, events, Error(fmt.Sprintf("failed to start remote agent: %v", err)))
+			sendClientEvent(ctx, events, agentruntime.Error(fmt.Sprintf("failed to start remote agent: %v", err)))
 			return
 		}
 
@@ -530,15 +531,15 @@ func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-
 			}
 		}()
 		var sawRootStop, sawError bool
-		send := func(event Event) bool {
+		send := func(event agentruntime.Event) bool {
 			r.trackOAuthElicitation(event)
 			return sendClientEvent(ctx, events, event)
 		}
 		for streamEvent := range streamChan {
 			switch event := streamEvent.(type) {
-			case *StreamStoppedEvent:
+			case *agentruntime.StreamStoppedEvent:
 				sawRootStop = sawRootStop || event.SessionID == "" || event.SessionID == sess.ID
-			case *ErrorEvent:
+			case *agentruntime.ErrorEvent:
 				sawError = true
 			}
 			r.backgroundMu.Lock()
@@ -554,9 +555,9 @@ func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-
 		}
 		if !sawRootStop && ctx.Err() == nil {
 			if !sawError {
-				sendClientEvent(ctx, events, Error("remote agent stream ended before completion; the response may be incomplete"))
+				sendClientEvent(ctx, events, agentruntime.Error("remote agent stream ended before completion; the response may be incomplete"))
 			}
-			sendClientEvent(ctx, events, StreamStopped(sess.ID, r.currentAgent, "error"))
+			sendClientEvent(ctx, events, agentruntime.StreamStopped(sess.ID, r.currentAgent, "error"))
 		}
 	}()
 
@@ -564,7 +565,7 @@ func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-
 }
 
 // Run starts the agent's interaction loop and returns the final messages
-func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]session.Message, error) {
+func (r *Runtime) Run(ctx context.Context, sess *session.Session) ([]session.Message, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	eventsChan := r.RunStream(ctx, sess)
 	// Cancel before draining so error returns cannot strand the forwarder.
@@ -575,7 +576,7 @@ func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]sessi
 	}()
 
 	for event := range eventsChan {
-		if errEvent, ok := event.(*ErrorEvent); ok {
+		if errEvent, ok := event.(*agentruntime.ErrorEvent); ok {
 			return nil, fmt.Errorf("%s", errEvent.Error)
 		}
 	}
@@ -585,7 +586,7 @@ func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]sessi
 
 // Steer enqueues a user message for mid-turn injection into the running
 // agent loop on the remote server.
-func (r *RemoteRuntime) Steer(ctx context.Context, msg QueuedMessage) error {
+func (r *Runtime) Steer(ctx context.Context, msg agentruntime.QueuedMessage) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -596,7 +597,7 @@ func (r *RemoteRuntime) Steer(ctx context.Context, msg QueuedMessage) error {
 }
 
 // FollowUp enqueues a message for end-of-turn processing on the remote server.
-func (r *RemoteRuntime) FollowUp(ctx context.Context, msg QueuedMessage) error {
+func (r *Runtime) FollowUp(ctx context.Context, msg agentruntime.QueuedMessage) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -606,12 +607,12 @@ func (r *RemoteRuntime) FollowUp(ctx context.Context, msg QueuedMessage) error {
 	})
 }
 
-func (r *RemoteRuntime) QueueStatus() QueueStatus {
-	return QueueStatus{}
+func (r *Runtime) QueueStatus() agentruntime.QueueStatus {
+	return agentruntime.QueueStatus{}
 }
 
 // Resume allows resuming execution after user confirmation
-func (r *RemoteRuntime) Resume(ctx context.Context, req ResumeRequest) {
+func (r *Runtime) Resume(ctx context.Context, req agentruntime.ResumeRequest) {
 	sessionID := r.activeSessionID()
 	slog.DebugContext(ctx, "Resuming remote runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason, "tool_name", req.ToolName, "session_id", sessionID)
 
@@ -626,21 +627,21 @@ func (r *RemoteRuntime) Resume(ctx context.Context, req ResumeRequest) {
 }
 
 // Summarize generates a summary for the session by compacting it server-side.
-func (r *RemoteRuntime) Summarize(ctx context.Context, sess *session.Session, _ string, sink EventSink) {
+func (r *Runtime) Summarize(ctx context.Context, sess *session.Session, _ string, sink agentruntime.EventSink) {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
-		sink.Emit(SessionSummary(sess.ID, "No active session to summarize", r.currentAgent, 0, 0, "", nil))
+		sink.Emit(agentruntime.SessionSummary(sess.ID, "No active session to summarize", r.currentAgent, 0, 0, "", nil))
 		return
 	}
 	if err := r.client.CompactSession(ctx, sessionID); err != nil {
 		slog.WarnContext(ctx, "Failed to compact session", "error", err)
-		sink.Emit(SessionSummary(sess.ID, fmt.Sprintf("Compaction failed: %v", err), r.currentAgent, 0, 0, "", nil))
+		sink.Emit(agentruntime.SessionSummary(sess.ID, fmt.Sprintf("Compaction failed: %v", err), r.currentAgent, 0, 0, "", nil))
 		return
 	}
-	sink.Emit(SessionSummary(sess.ID, "Session compacted successfully", r.currentAgent, 0, 0, "", nil))
+	sink.Emit(agentruntime.SessionSummary(sess.ID, "Session compacted successfully", r.currentAgent, 0, 0, "", nil))
 }
 
-func (r *RemoteRuntime) convertSessionMessages(sess *session.Session) []api.Message {
+func (r *Runtime) convertSessionMessages(sess *session.Session) []api.Message {
 	sessionMessages := sess.GetAllMessages()
 	messages := make([]api.Message, 0, len(sessionMessages))
 
@@ -656,15 +657,15 @@ func (r *RemoteRuntime) convertSessionMessages(sess *session.Session) []api.Mess
 	return messages
 }
 
-func (r *RemoteRuntime) trackOAuthElicitation(event Event) {
-	request, ok := event.(*ElicitationRequestEvent)
+func (r *Runtime) trackOAuthElicitation(event agentruntime.Event) {
+	request, ok := event.(*agentruntime.ElicitationRequestEvent)
 	if !ok || request.Meta["docker-agent/type"] != "oauth_flow" || request.ElicitationID == "" {
 		return
 	}
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 	if r.pendingOAuthElicitations == nil {
-		r.pendingOAuthElicitations = make(map[string]*ElicitationRequestEvent)
+		r.pendingOAuthElicitations = make(map[string]*agentruntime.ElicitationRequestEvent)
 	}
 	if r.pendingOAuthElicitations[request.ElicitationID] == nil && len(r.pendingOAuthElicitations) < remoteHistoryMaxElicitations {
 		r.pendingOAuthElicitations[request.ElicitationID] = request
@@ -672,12 +673,15 @@ func (r *RemoteRuntime) trackOAuthElicitation(event Event) {
 }
 
 // ResumeElicitation answers a request, running OAuth only for its explicit ID.
-func (r *RemoteRuntime) ResumeElicitation(ctx context.Context, action tools.ElicitationAction, content map[string]any, elicitationID ...string) error {
+func (r *Runtime) ResumeElicitation(ctx context.Context, action tools.ElicitationAction, content map[string]any, elicitationID ...string) error {
 	// Serialize responses, including the browser flow, so concurrent accepts
 	// cannot authorize the same request twice.
 	r.oauthMu.Lock()
 	defer r.oauthMu.Unlock()
-	id := firstElicitationID(elicitationID)
+	id := ""
+	if len(elicitationID) > 0 {
+		id = elicitationID[0]
+	}
 	r.stateMu.Lock()
 	sessionID := r.sessionID
 	pending := r.pendingOAuthElicitations[id]
@@ -700,7 +704,7 @@ func (r *RemoteRuntime) ResumeElicitation(ctx context.Context, action tools.Elic
 	return r.client.ResumeElicitation(ctx, sessionID, action, content, id)
 }
 
-func (r *RemoteRuntime) handleOAuthElicitation(ctx context.Context, sessionID string, req *ElicitationRequestEvent) error {
+func (r *Runtime) handleOAuthElicitation(ctx context.Context, sessionID string, req *agentruntime.ElicitationRequestEvent) error {
 	if req == nil {
 		return nil
 	}
@@ -845,13 +849,13 @@ func (r *RemoteRuntime) handleOAuthElicitation(ctx context.Context, sessionID st
 	return nil
 }
 
-// SessionStore returns a RemoteSessionStore that wraps the remote client.
-func (r *RemoteRuntime) SessionStore() session.Store {
-	return NewRemoteSessionStore(r.client)
+// SessionStore returns a SessionStore that wraps the remote client.
+func (r *Runtime) SessionStore() session.Store {
+	return NewSessionStore(r.client)
 }
 
 // AvailableModels returns available models for the agent.
-func (r *RemoteRuntime) AvailableModels(ctx context.Context) []modelcatalog.ModelChoice {
+func (r *Runtime) AvailableModels(ctx context.Context) []modelcatalog.ModelChoice {
 	models, err := r.client.GetAvailableModels(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "Failed to get available models", "error", err)
@@ -866,11 +870,11 @@ func (r *RemoteRuntime) AvailableModels(ctx context.Context) []modelcatalog.Mode
 
 // SetAgentModel queues modelRef as the override to apply on the session's
 // current agent. The override is forwarded to the server on the next
-// [RemoteRuntime.RunStream] call, where the server persists it as the
+// [Runtime.RunStream] call, where the server persists it as the
 // per-agent model override (same effect as the historic dedicated endpoint,
 // just without the extra round trip). A subsequent call before the next
 // turn replaces the queued ref; an empty string clears it.
-func (r *RemoteRuntime) SetAgentModel(_ context.Context, _, modelRef string) error {
+func (r *Runtime) SetAgentModel(_ context.Context, _, modelRef string) error {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 	r.pendingModelOverride = modelRef
@@ -879,47 +883,47 @@ func (r *RemoteRuntime) SetAgentModel(_ context.Context, _, modelRef string) err
 
 // CycleAgentThinkingLevel is unsupported on remote runtimes; the server owns
 // model configuration including thinking-effort selection.
-func (r *RemoteRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
-	return "", ErrUnsupported
+func (r *Runtime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
+	return "", agentruntime.ErrUnsupported
 }
 
 // SetAgentThinkingLevel is unsupported on remote runtimes; the server owns
 // model configuration including thinking-effort selection.
-func (r *RemoteRuntime) SetAgentThinkingLevel(context.Context, string, effort.Level) (effort.Level, error) {
-	return "", ErrUnsupported
+func (r *Runtime) SetAgentThinkingLevel(context.Context, string, effort.Level) (effort.Level, error) {
+	return "", agentruntime.ErrUnsupported
 }
 
 // SupportsModelSwitching returns true for remote runtimes (model switching is handled server-side).
-func (r *RemoteRuntime) SupportsModelSwitching() bool {
+func (r *Runtime) SupportsModelSwitching() bool {
 	return true
 }
 
 // PermissionsInfo returns nil for remote runtime since permissions are handled server-side.
-func (r *RemoteRuntime) PermissionsInfo() *PermissionsInfo {
+func (r *Runtime) PermissionsInfo() *agentruntime.PermissionsInfo {
 	return nil
 }
 
 // ResetStartupInfo is a no-op for remote runtime.
-func (r *RemoteRuntime) ResetStartupInfo() {
+func (r *Runtime) ResetStartupInfo() {
 }
 
 // CurrentAgentSkillsToolset returns nil for remote runtimes since skills are managed server-side.
-func (r *RemoteRuntime) CurrentAgentSkillsToolset() *skills.ToolSet {
+func (r *Runtime) CurrentAgentSkillsToolset() *skills.ToolSet {
 	return nil
 }
 
-func (r *RemoteRuntime) ReadSkillContent(context.Context, *session.Session, string) (string, error) {
-	return "", ErrUnsupported
+func (r *Runtime) ReadSkillContent(context.Context, *session.Session, string) (string, error) {
+	return "", agentruntime.ErrUnsupported
 }
 
 // RunSkillFork is unsupported on remote runtimes; the server owns skill
 // execution.
-func (r *RemoteRuntime) RunSkillFork(context.Context, *session.Session, skills.RunSkillArgs, EventSink) (*tools.ToolCallResult, error) {
-	return nil, fmt.Errorf("run skill fork: %w", ErrUnsupported)
+func (r *Runtime) RunSkillFork(context.Context, *session.Session, skills.RunSkillArgs, agentruntime.EventSink) (*tools.ToolCallResult, error) {
+	return nil, fmt.Errorf("run skill fork: %w", agentruntime.ErrUnsupported)
 }
 
 // UpdateSessionTitle updates the title of the current session on the remote server.
-func (r *RemoteRuntime) UpdateSessionTitle(ctx context.Context, sess *session.Session, title string) error {
+func (r *Runtime) UpdateSessionTitle(ctx context.Context, sess *session.Session, title string) error {
 	sessionID := r.activeSessionID()
 	sess.SetTitle(title)
 	if sessionID == "" {
@@ -929,7 +933,7 @@ func (r *RemoteRuntime) UpdateSessionTitle(ctx context.Context, sess *session.Se
 }
 
 // CurrentMCPPrompts returns available MCP prompts from the server.
-func (r *RemoteRuntime) CurrentMCPPrompts(ctx context.Context) map[string]tools.PromptInfo {
+func (r *Runtime) CurrentMCPPrompts(ctx context.Context) map[string]tools.PromptInfo {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return make(map[string]tools.PromptInfo)
@@ -960,7 +964,7 @@ func (r *RemoteRuntime) CurrentMCPPrompts(ctx context.Context) map[string]tools.
 }
 
 // ExecuteMCPPrompt executes an MCP prompt on the server.
-func (r *RemoteRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string, args map[string]string) (string, error) {
+func (r *Runtime) ExecuteMCPPrompt(ctx context.Context, promptName string, args map[string]string) (string, error) {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return "", errors.New("no active session")
@@ -969,12 +973,12 @@ func (r *RemoteRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string,
 }
 
 // TitleGenerator is not supported on remote runtimes (titles are generated server-side).
-func (r *RemoteRuntime) TitleGenerator(context.Context) *sessiontitle.Generator {
+func (r *Runtime) TitleGenerator(context.Context) *sessiontitle.Generator {
 	return nil
 }
 
 // TogglePause pauses/resumes a session on the server.
-func (r *RemoteRuntime) TogglePause(ctx context.Context) (bool, error) {
+func (r *Runtime) TogglePause(ctx context.Context) (bool, error) {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return false, errors.New("no active session")
@@ -985,11 +989,11 @@ func (r *RemoteRuntime) TogglePause(ctx context.Context) (bool, error) {
 // OnToolsChanged is a no-op for remote runtimes; tool-list changes are
 // observed server-side and surface through the run-stream events rather
 // than via an out-of-band callback.
-func (r *RemoteRuntime) OnToolsChanged(func(Event)) {}
+func (r *Runtime) OnToolsChanged(func(agentruntime.Event)) {}
 
 // OnBackgroundEvent receives server-side recalls and out-of-band events.
 // The subscription outlives individual turns and stops on Close or unregister.
-func (r *RemoteRuntime) OnBackgroundEvent(handler func(Event)) {
+func (r *Runtime) OnBackgroundEvent(handler func(agentruntime.Event)) {
 	r.backgroundMu.Lock()
 	defer r.backgroundMu.Unlock()
 	r.backgroundHandler = handler
@@ -999,13 +1003,13 @@ func (r *RemoteRuntime) OnBackgroundEvent(handler func(Event)) {
 	}
 }
 
-func (r *RemoteRuntime) activeSessionID() string {
+func (r *Runtime) activeSessionID() string {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 	return r.sessionID
 }
 
-func (r *RemoteRuntime) deliverBackgroundEvent(subscription *remoteEventSubscription, event Event) bool {
+func (r *Runtime) deliverBackgroundEvent(subscription *remoteEventSubscription, event agentruntime.Event) bool {
 	r.backgroundMu.Lock()
 	handler := r.backgroundHandler
 	active := r.background == subscription && !r.closed
@@ -1013,7 +1017,7 @@ func (r *RemoteRuntime) deliverBackgroundEvent(subscription *remoteEventSubscrip
 	if !active || handler == nil {
 		return false
 	}
-	if recovered, ok := event.(*SessionRecoveredEvent); ok {
+	if recovered, ok := event.(*agentruntime.SessionRecoveredEvent); ok {
 		r.stateMu.Lock()
 		// Root idleness does not complete detached sub-session requests.
 		for id, request := range r.pendingOAuthElicitations {
@@ -1029,13 +1033,13 @@ func (r *RemoteRuntime) deliverBackgroundEvent(subscription *remoteEventSubscrip
 	return true
 }
 
-func (r *RemoteRuntime) emitBackgroundEvent(subscription *remoteEventSubscription, event Event) bool {
-	return subscription.history.deliver(event, func(event Event) bool {
+func (r *Runtime) emitBackgroundEvent(subscription *remoteEventSubscription, event agentruntime.Event) bool {
+	return subscription.history.deliver(event, func(event agentruntime.Event) bool {
 		return r.deliverBackgroundEvent(subscription, event)
 	})
 }
 
-func (r *RemoteRuntime) clearBackgroundSubscription(subscription *remoteEventSubscription) {
+func (r *Runtime) clearBackgroundSubscription(subscription *remoteEventSubscription) {
 	subscription.cancel()
 	r.backgroundMu.Lock()
 	defer r.backgroundMu.Unlock()
@@ -1044,7 +1048,7 @@ func (r *RemoteRuntime) clearBackgroundSubscription(subscription *remoteEventSub
 	}
 }
 
-func (r *RemoteRuntime) startBackgroundEvents(ctx context.Context, sessionID string) {
+func (r *Runtime) startBackgroundEvents(ctx context.Context, sessionID string) {
 	client, ok := r.client.(remoteEventClient)
 	if !ok {
 		return
@@ -1081,7 +1085,7 @@ func (r *RemoteRuntime) startBackgroundEvents(ctx context.Context, sessionID str
 		err = errors.New("session is already streaming; no safe background baseline")
 	}
 	if err != nil {
-		r.emitBackgroundEvent(subscription, Warning(fmt.Sprintf("remote background events unavailable: %v", err), ""))
+		r.emitBackgroundEvent(subscription, agentruntime.Warning(fmt.Sprintf("remote background events unavailable: %v", err), ""))
 		r.clearBackgroundSubscription(subscription)
 		return
 	}
@@ -1098,7 +1102,7 @@ func (r *RemoteRuntime) startBackgroundEvents(ctx context.Context, sessionID str
 		defer r.clearBackgroundSubscription(subscription)
 		events, err := r.openBackgroundEvents(backgroundCtx, client, sessionID, snapshot.LastEventSeq)
 		if err != nil {
-			r.emitBackgroundEvent(subscription, Error(fmt.Sprintf("subscribing to remote background events: %v", err)))
+			r.emitBackgroundEvent(subscription, agentruntime.Error(fmt.Sprintf("subscribing to remote background events: %v", err)))
 			return
 		}
 		for {
@@ -1109,20 +1113,20 @@ func (r *RemoteRuntime) startBackgroundEvents(ctx context.Context, sessionID str
 				if !ok {
 					return // session ended; never blindly replay old history
 				}
-				if failure, ok := event.(*ErrorEvent); ok && failure.Error == sessionEventGapError {
-					r.emitBackgroundEvent(subscription, Warning("remote event gap; recovering saved assistant text when idle (tool and interaction events may be incomplete)", ""))
+				if failure, ok := event.(*agentruntime.ErrorEvent); ok && failure.Error == sessionEventGapError {
+					r.emitBackgroundEvent(subscription, agentruntime.Warning("remote event gap; recovering saved assistant text when idle (tool and interaction events may be incomplete)", ""))
 					if !waitEventStreamRetry(backgroundCtx, 250*time.Millisecond) {
 						return
 					}
 					var err error
 					snapshot, err = r.reconcileBackgroundSnapshot(backgroundCtx, subscription, client)
 					if err != nil {
-						r.emitBackgroundEvent(subscription, Error(fmt.Sprintf("recovering remote event gap: %v", err)))
+						r.emitBackgroundEvent(subscription, agentruntime.Error(fmt.Sprintf("recovering remote event gap: %v", err)))
 						return
 					}
 					events, err = r.openBackgroundEvents(backgroundCtx, client, sessionID, snapshot.LastEventSeq)
 					if err != nil {
-						r.emitBackgroundEvent(subscription, Error(fmt.Sprintf("resuming remote background events: %v", err)))
+						r.emitBackgroundEvent(subscription, agentruntime.Error(fmt.Sprintf("resuming remote background events: %v", err)))
 						return
 					}
 					continue
@@ -1136,7 +1140,7 @@ func (r *RemoteRuntime) startBackgroundEvents(ctx context.Context, sessionID str
 }
 
 // /events may not exist until the first recall or elicitation creates its log.
-func (r *RemoteRuntime) openBackgroundEvents(ctx context.Context, client remoteEventClient, sessionID string, since uint64) (<-chan Event, error) {
+func (r *Runtime) openBackgroundEvents(ctx context.Context, client remoteEventClient, sessionID string, since uint64) (<-chan agentruntime.Event, error) {
 	delay := 250 * time.Millisecond
 	for {
 		events, err := client.StreamSessionEventsSince(ctx, sessionID, since)
@@ -1154,7 +1158,7 @@ func (r *RemoteRuntime) openBackgroundEvents(ctx context.Context, client remoteE
 	}
 }
 
-func (r *RemoteRuntime) reconcileBackgroundSnapshot(ctx context.Context, subscription *remoteEventSubscription, client remoteEventClient) (*api.SessionSnapshotResponse, error) {
+func (r *Runtime) reconcileBackgroundSnapshot(ctx context.Context, subscription *remoteEventSubscription, client remoteEventClient) (*api.SessionSnapshotResponse, error) {
 	for {
 		if !r.reconcileMu.TryLock() {
 			if !waitEventStreamRetry(ctx, 250*time.Millisecond) {
@@ -1173,7 +1177,7 @@ func (r *RemoteRuntime) reconcileBackgroundSnapshot(ctx context.Context, subscri
 	}
 }
 
-func (r *RemoteRuntime) reconcileIdleSnapshot(ctx context.Context, subscription *remoteEventSubscription, client remoteEventClient) (*api.SessionSnapshotResponse, error) {
+func (r *Runtime) reconcileIdleSnapshot(ctx context.Context, subscription *remoteEventSubscription, client remoteEventClient) (*api.SessionSnapshotResponse, error) {
 	snapshot, err := client.GetSessionSnapshot(ctx, subscription.sessionID)
 	if err != nil {
 		return nil, err
@@ -1191,12 +1195,12 @@ func (r *RemoteRuntime) reconcileIdleSnapshot(ctx context.Context, subscription 
 	if !active || handler == nil || ctx.Err() != nil {
 		return nil, context.Canceled
 	}
-	if err := subscription.history.reconcile(snapshot, func(event Event) {
+	if err := subscription.history.reconcile(snapshot, func(event agentruntime.Event) {
 		r.deliverBackgroundEvent(subscription, event)
 	}); err != nil {
 		return nil, err
 	}
-	if !r.deliverBackgroundEvent(subscription, SessionRecovered(snapshot.ID)) {
+	if !r.deliverBackgroundEvent(subscription, agentruntime.SessionRecovered(snapshot.ID)) {
 		return nil, context.Canceled
 	}
 	return snapshot, nil
@@ -1206,14 +1210,14 @@ func (r *RemoteRuntime) reconcileIdleSnapshot(ctx context.Context, subscription 
 // arrive on RunStream, or through OnBackgroundEvent when a cursor-based
 // subscription is active, so there is no additional sink to register.
 //
-// RemoteRuntime deliberately does NOT implement
+// Runtime deliberately does NOT implement
 // LocalRuntime.MirrorsElicitationOnRunStream: embedders that forward
 // RunStream events verbatim (e.g. pkg/app.App) rely on that capability check
 // to forward RunStream elicitations when no background subscription is active.
-func (r *RemoteRuntime) OnElicitationRequest(func(Event)) {}
+func (r *Runtime) OnElicitationRequest(func(agentruntime.Event)) {}
 
 // RetireBackgroundEvents stops deliveries for a replaced conversation.
-func (r *RemoteRuntime) RetireBackgroundEvents() {
+func (r *Runtime) RetireBackgroundEvents() {
 	r.backgroundMu.Lock()
 	defer r.backgroundMu.Unlock()
 	if r.background != nil {
@@ -1223,7 +1227,7 @@ func (r *RemoteRuntime) RetireBackgroundEvents() {
 }
 
 // Close stops the out-of-band session subscription.
-func (r *RemoteRuntime) Close() error {
+func (r *Runtime) Close() error {
 	r.backgroundMu.Lock()
 	defer r.backgroundMu.Unlock()
 	r.closed = true
@@ -1236,7 +1240,7 @@ func (r *RemoteRuntime) Close() error {
 }
 
 // GetSnapshots retrieves available snapshots for the current session.
-func (r *RemoteRuntime) GetSnapshots(ctx context.Context) ([]map[string]any, error) {
+func (r *Runtime) GetSnapshots(ctx context.Context) ([]map[string]any, error) {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return nil, errors.New("no active session")
@@ -1245,7 +1249,7 @@ func (r *RemoteRuntime) GetSnapshots(ctx context.Context) ([]map[string]any, err
 }
 
 // Undo reverts to the previous snapshot on the remote server.
-func (r *RemoteRuntime) Undo(ctx context.Context) error {
+func (r *Runtime) Undo(ctx context.Context) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1254,7 +1258,7 @@ func (r *RemoteRuntime) Undo(ctx context.Context) error {
 }
 
 // Reset resets the session to its initial state on the remote server.
-func (r *RemoteRuntime) Reset(ctx context.Context) error {
+func (r *Runtime) Reset(ctx context.Context) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1263,7 +1267,7 @@ func (r *RemoteRuntime) Reset(ctx context.Context) error {
 }
 
 // AddMessageToSession adds a message to the current session on the remote server.
-func (r *RemoteRuntime) AddMessageToSession(ctx context.Context, msg *session.Message) error {
+func (r *Runtime) AddMessageToSession(ctx context.Context, msg *session.Message) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1272,7 +1276,7 @@ func (r *RemoteRuntime) AddMessageToSession(ctx context.Context, msg *session.Me
 }
 
 // UpdateSessionMessage updates a message in the current session on the remote server.
-func (r *RemoteRuntime) UpdateSessionMessage(ctx context.Context, msgID string, msg *session.Message) error {
+func (r *Runtime) UpdateSessionMessage(ctx context.Context, msgID string, msg *session.Message) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1281,7 +1285,7 @@ func (r *RemoteRuntime) UpdateSessionMessage(ctx context.Context, msgID string, 
 }
 
 // AddSessionSummary adds a summary item to the current session on the remote server.
-func (r *RemoteRuntime) AddSessionSummary(ctx context.Context, item session.Item) error {
+func (r *Runtime) AddSessionSummary(ctx context.Context, item session.Item) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1290,7 +1294,7 @@ func (r *RemoteRuntime) AddSessionSummary(ctx context.Context, item session.Item
 }
 
 // UpdateSessionTokens updates token counts for the current session on the remote server.
-func (r *RemoteRuntime) UpdateSessionTokens(ctx context.Context, inputTokens, outputTokens int64, cost float64) error {
+func (r *Runtime) UpdateSessionTokens(ctx context.Context, inputTokens, outputTokens int64, cost float64) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1299,7 +1303,7 @@ func (r *RemoteRuntime) UpdateSessionTokens(ctx context.Context, inputTokens, ou
 }
 
 // SetSessionStarred sets the starred status for the current session on the remote server.
-func (r *RemoteRuntime) SetSessionStarred(ctx context.Context, starred bool) error {
+func (r *Runtime) SetSessionStarred(ctx context.Context, starred bool) error {
 	sessionID := r.activeSessionID()
 	if sessionID == "" {
 		return errors.New("no active session")
@@ -1307,31 +1311,31 @@ func (r *RemoteRuntime) SetSessionStarred(ctx context.Context, starred bool) err
 	return r.client.SetSessionStarred(ctx, sessionID, starred)
 }
 
-var _ Runtime = (*RemoteRuntime)(nil)
+var _ agentruntime.Runtime = (*Runtime)(nil)
 
-// RemoteSessionStore wraps a RemoteClient to implement the session.Store interface.
-type RemoteSessionStore struct {
-	client RemoteClient
+// SessionStore wraps a Backend to implement the session.Store interface.
+type SessionStore struct {
+	client Backend
 }
 
-// NewRemoteSessionStore creates a new RemoteSessionStore.
-func NewRemoteSessionStore(client RemoteClient) *RemoteSessionStore {
-	return &RemoteSessionStore{client: client}
+// NewSessionStore creates a new SessionStore.
+func NewSessionStore(client Backend) *SessionStore {
+	return &SessionStore{client: client}
 }
 
-func (s *RemoteSessionStore) AddSession(context.Context, *session.Session) error {
-	return fmt.Errorf("add session: %w", ErrUnsupported)
+func (s *SessionStore) AddSession(context.Context, *session.Session) error {
+	return fmt.Errorf("add session: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) GetSession(context.Context, string) (*session.Session, error) {
-	return nil, fmt.Errorf("get session: %w", ErrUnsupported)
+func (s *SessionStore) GetSession(context.Context, string) (*session.Session, error) {
+	return nil, fmt.Errorf("get session: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) GetSessionByOrigin(context.Context, string, string) (*session.Session, error) {
-	return nil, fmt.Errorf("get session by origin: %w", ErrUnsupported)
+func (s *SessionStore) GetSessionByOrigin(context.Context, string, string) (*session.Session, error) {
+	return nil, fmt.Errorf("get session by origin: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) GetSessions(ctx context.Context) ([]*session.Session, error) {
+func (s *SessionStore) GetSessions(ctx context.Context) ([]*session.Session, error) {
 	sessions, err := s.client.GetAllSessions(ctx)
 	if err != nil {
 		return nil, err
@@ -1344,66 +1348,66 @@ func (s *RemoteSessionStore) GetSessions(ctx context.Context) ([]*session.Sessio
 	return result, nil
 }
 
-func (s *RemoteSessionStore) GetSessionSummaries(context.Context) ([]session.Summary, error) {
-	return nil, fmt.Errorf("get session summaries: %w", ErrUnsupported)
+func (s *SessionStore) GetSessionSummaries(context.Context) ([]session.Summary, error) {
+	return nil, fmt.Errorf("get session summaries: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) DeleteSession(ctx context.Context, id string) error {
+func (s *SessionStore) DeleteSession(ctx context.Context, id string) error {
 	return s.client.DeleteRemoteSession(ctx, id)
 }
 
-func (s *RemoteSessionStore) UpdateSession(context.Context, *session.Session) error {
-	return fmt.Errorf("update session: %w", ErrUnsupported)
+func (s *SessionStore) UpdateSession(context.Context, *session.Session) error {
+	return fmt.Errorf("update session: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) SetSessionStarred(context.Context, string, bool) error {
-	return fmt.Errorf("set session starred: %w", ErrUnsupported)
+func (s *SessionStore) SetSessionStarred(context.Context, string, bool) error {
+	return fmt.Errorf("set session starred: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) AddMessage(context.Context, string, *session.Message) (int64, error) {
-	return 0, fmt.Errorf("add message: %w", ErrUnsupported)
+func (s *SessionStore) AddMessage(context.Context, string, *session.Message) (int64, error) {
+	return 0, fmt.Errorf("add message: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) UpdateMessage(context.Context, string, int64, *session.Message) error {
-	return fmt.Errorf("update message: %w", ErrUnsupported)
+func (s *SessionStore) UpdateMessage(context.Context, string, int64, *session.Message) error {
+	return fmt.Errorf("update message: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) AddSubSession(context.Context, string, *session.Session) error {
-	return fmt.Errorf("add sub session: %w", ErrUnsupported)
+func (s *SessionStore) AddSubSession(context.Context, string, *session.Session) error {
+	return fmt.Errorf("add sub session: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) PersistCompaction(context.Context, *session.Session, int64, int64, session.Item) error {
-	return fmt.Errorf("persist compaction: %w", ErrUnsupported)
+func (s *SessionStore) PersistCompaction(context.Context, *session.Session, int64, int64, session.Item) error {
+	return fmt.Errorf("persist compaction: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) AddSummary(context.Context, string, session.Item) error {
-	return fmt.Errorf("add summary: %w", ErrUnsupported)
+func (s *SessionStore) AddSummary(context.Context, string, session.Item) error {
+	return fmt.Errorf("add summary: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) AddError(context.Context, string, *session.Error) error {
-	return fmt.Errorf("add error: %w", ErrUnsupported)
+func (s *SessionStore) AddError(context.Context, string, *session.Error) error {
+	return fmt.Errorf("add error: %w", agentruntime.ErrUnsupported)
 }
 
 // AddEvaluation is a no-op: the server persists runtime evaluation events.
-func (s *RemoteSessionStore) AddEvaluation(context.Context, string, *session.Evaluation) error {
+func (s *SessionStore) AddEvaluation(context.Context, string, *session.Evaluation) error {
 	return nil
 }
 
 // AddRoutingDecision is a no-op: the server persists runtime routing events.
-func (s *RemoteSessionStore) AddRoutingDecision(context.Context, string, *session.RoutingDecision) error {
+func (s *SessionStore) AddRoutingDecision(context.Context, string, *session.RoutingDecision) error {
 	return nil
 }
 
-func (s *RemoteSessionStore) UpdateSessionTokens(context.Context, string, int64, int64, float64) error {
-	return fmt.Errorf("update session tokens: %w", ErrUnsupported)
+func (s *SessionStore) UpdateSessionTokens(context.Context, string, int64, int64, float64) error {
+	return fmt.Errorf("update session tokens: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) UpdateSessionTitle(context.Context, string, string) error {
-	return fmt.Errorf("update session title: %w", ErrUnsupported)
+func (s *SessionStore) UpdateSessionTitle(context.Context, string, string) error {
+	return fmt.Errorf("update session title: %w", agentruntime.ErrUnsupported)
 }
 
-func (s *RemoteSessionStore) Close() error {
+func (s *SessionStore) Close() error {
 	return nil
 }
 
-var _ session.Store = (*RemoteSessionStore)(nil)
+var _ session.Store = (*SessionStore)(nil)

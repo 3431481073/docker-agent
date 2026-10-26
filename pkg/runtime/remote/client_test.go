@@ -1,4 +1,4 @@
-package runtime
+package remote
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	agentruntime "github.com/docker/docker-agent/pkg/runtime"
 )
 
 // httptest.Server.Close closes the global pool, so parallel tests need private transports.
@@ -94,7 +96,7 @@ func TestClient_StreamSessionEvents_DeliversMultipleEvents(t *testing.T) {
 
 	var titles []string
 	for ev := range ch {
-		titleEv, ok := ev.(*SessionTitleEvent)
+		titleEv, ok := ev.(*agentruntime.SessionTitleEvent)
 		if !ok {
 			continue
 		}
@@ -183,18 +185,18 @@ func TestClient_RunAgentIgnoresTotalHTTPTimeout(t *testing.T) {
 	t.Cleanup(cancel)
 	stream, err := c.RunAgent(ctx, "s", "agent.yaml", nil, "")
 	require.NoError(t, err)
-	first := awaitEvent[*WarningEvent](t, stream, "first event")
+	first := awaitEvent[*agentruntime.WarningEvent](t, stream, "first event")
 	assert.Equal(t, "first", first.Message)
 	// Let the configured total timeout expire while the stream is healthy.
 	<-time.After(200 * time.Millisecond)
 	close(proceed)
-	var got []Event
+	var got []agentruntime.Event
 	for event := range stream {
 		got = append(got, event)
 	}
 	require.Len(t, got, 2)
-	assert.IsType(t, &StreamStoppedEvent{}, got[1])
-	last, ok := got[0].(*WarningEvent)
+	assert.IsType(t, &agentruntime.StreamStoppedEvent{}, got[1])
+	last, ok := got[0].(*agentruntime.WarningEvent)
 	require.True(t, ok, "got %T", got[0])
 	assert.Equal(t, "last", last.Message)
 	assert.Equal(t, 100*time.Millisecond, c.httpClient.Timeout, "do not mutate the supplied client")
@@ -229,7 +231,7 @@ func TestClient_StreamSessionEventsReconnectsFromLastDeliveredID(t *testing.T) {
 	require.NoError(t, err)
 	var titles []string
 	for event := range stream {
-		title, ok := event.(*SessionTitleEvent)
+		title, ok := event.(*agentruntime.SessionTitleEvent)
 		require.True(t, ok, "got %T", event)
 		titles = append(titles, title.Title)
 	}
@@ -252,12 +254,12 @@ func TestClient_StreamSessionEventsGapRequiresSnapshot(t *testing.T) {
 	c := newTestClient(t, srv.URL+"?since=1")
 	stream, err := c.StreamSessionEventsSince(t.Context(), "s", 7)
 	require.NoError(t, err)
-	var got []Event
+	var got []agentruntime.Event
 	for event := range stream {
 		got = append(got, event)
 	}
 	require.Len(t, got, 1)
-	failure, ok := got[0].(*ErrorEvent)
+	failure, ok := got[0].(*agentruntime.ErrorEvent)
 	require.True(t, ok)
 	assert.Contains(t, failure.Error, "reload the session snapshot")
 	assert.Equal(t, int32(1), calls.Load())
@@ -280,7 +282,7 @@ func TestClient_SSECancelWithUnreadFullBuffer(t *testing.T) {
 			c := newTestClient(t, srv.URL)
 			ctx, cancel := context.WithCancel(t.Context())
 			t.Cleanup(cancel)
-			var stream <-chan Event
+			var stream <-chan agentruntime.Event
 			var err error
 			if run {
 				stream, err = c.RunAgent(ctx, "s", "agent.yaml", nil, "")
@@ -324,7 +326,7 @@ func TestClient_StreamSessionEventsReconnectsAfterEmptyConnection(t *testing.T) 
 	defer cancel()
 	stream, err := c.StreamSessionEvents(ctx, "s")
 	require.NoError(t, err)
-	var got []Event
+	var got []agentruntime.Event
 	for event := range stream {
 		got = append(got, event)
 	}
@@ -352,16 +354,16 @@ func TestClient_StreamSessionEventsIgnoresTotalHTTPTimeout(t *testing.T) {
 	defer cancel()
 	stream, err := client.StreamSessionEvents(ctx, "s")
 	require.NoError(t, err)
-	first := awaitEvent[*SessionTitleEvent](t, stream, "first event")
+	first := awaitEvent[*agentruntime.SessionTitleEvent](t, stream, "first event")
 	assert.Equal(t, "first", first.Title)
 	<-time.After(200 * time.Millisecond)
 	close(proceed)
-	var got []Event
+	var got []agentruntime.Event
 	for event := range stream {
 		got = append(got, event)
 	}
 	require.Len(t, got, 1)
-	last, ok := got[0].(*SessionTitleEvent)
+	last, ok := got[0].(*agentruntime.SessionTitleEvent)
 	require.True(t, ok, "got %T", got[0])
 	assert.Equal(t, "last", last.Title)
 }
@@ -389,12 +391,12 @@ func TestClient_RunAgentIncompleteStreamIsAnError(t *testing.T) {
 			client := newTestClient(t, srv.URL)
 			stream, err := client.RunAgent(t.Context(), "s", "agent.yaml", nil, "")
 			require.NoError(t, err)
-			var got []Event
+			var got []agentruntime.Event
 			for event := range stream {
 				got = append(got, event)
 			}
 			require.NotEmpty(t, got)
-			assert.IsType(t, &ErrorEvent{}, got[len(got)-1])
+			assert.IsType(t, &agentruntime.ErrorEvent{}, got[len(got)-1])
 			assert.Equal(t, int32(1), runs.Load(), "never resubmit a truncated run")
 		})
 	}

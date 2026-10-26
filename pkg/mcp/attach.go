@@ -9,7 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/docker/docker-agent/pkg/api"
-	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/remote"
 	"github.com/docker/docker-agent/pkg/version"
 )
 
@@ -44,7 +44,7 @@ func AttachServer(ctx context.Context, addr, sessionID string) (*mcp.Server, err
 		return nil, errors.New("attach: addr and sessionID are required")
 	}
 
-	client, err := runtime.NewClient(addr)
+	client, err := remote.NewClient(addr)
 	if err != nil {
 		return nil, fmt.Errorf("client for %s: %w", addr, err)
 	}
