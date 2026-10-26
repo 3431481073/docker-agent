@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/docker/docker-agent/pkg/agent"
+	"github.com/docker/docker-agent/pkg/runtime/inspection"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/telemetry/genai"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -588,7 +589,7 @@ func prependNote(result, note string) string {
 func backgroundAuthRequiredNote(child *agent.Agent) string {
 	var needAuth []string
 	for _, ts := range child.ToolSets() {
-		status := toolsetStatusFor(ts)
+		status := inspection.ToolsetStatus(ts)
 		if tools.IsAuthorizationRequired(status.LastError) {
 			needAuth = append(needAuth, status.Name)
 		}

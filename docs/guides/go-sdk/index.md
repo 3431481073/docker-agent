@@ -140,7 +140,7 @@ serving adapters retain their existing wiring and budget behavior.
 `(*runtime.LocalRuntime).AgentExecutionCapabilities(name)` returns a static
 native/harness profile without starting tools, constructing drivers or
 initializing budget counters. Unknown agents return nil. The same optional
-profile is available on `runtime.AgentConfigInfo`, `runtime.AgentDetails` in
+profile is available on `inspection.AgentConfigInfo`, `runtime.AgentDetails` in
 `team_info`, and local startup/refresh `runtime.AgentInfoEvent` values.
 See [Execution capabilities](../../features/api-server/index.md#execution-capabilities)
 for field meanings and unknown/remote behavior.
