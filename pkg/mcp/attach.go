@@ -52,7 +52,10 @@ func AttachServer(ctx context.Context, addr, sessionID string) (*mcp.Server, err
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "docker-agent (attached)",
 		Version: version.Version,
-	}, nil)
+	}, &mcp.ServerOptions{
+		// Override the SDK default that advertises deprecated MCP logging.
+		Capabilities: &mcp.ServerCapabilities{},
+	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "send",

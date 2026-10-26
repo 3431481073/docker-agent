@@ -62,7 +62,9 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, _ *gomcp.InitializeRequ
 	toolChanged, promptChanged := c.notificationHandlers()
 
 	// Create client options with elicitation and notification support.
+	// Override the SDK default that advertises deprecated roots support.
 	opts := &gomcp.ClientOptions{
+		Capabilities:             &gomcp.ClientCapabilities{},
 		ElicitationHandler:       c.handleElicitationRequest,
 		ToolListChangedHandler:   toolChanged,
 		PromptListChangedHandler: promptChanged,

@@ -163,7 +163,9 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, _ *gomcp.InitializeReq
 
 	toolChanged, promptChanged := c.notificationHandlers()
 
+	// Override the SDK default that advertises deprecated roots support.
 	opts := &gomcp.ClientOptions{
+		Capabilities:             &gomcp.ClientCapabilities{},
 		ElicitationHandler:       c.handleElicitationRequest,
 		ToolListChangedHandler:   toolChanged,
 		PromptListChangedHandler: promptChanged,
