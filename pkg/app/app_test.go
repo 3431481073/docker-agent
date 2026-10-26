@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/runtime/modelcatalog"
+	"github.com/docker/docker-agent/pkg/runtime/remote"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -1187,7 +1188,7 @@ func TestMustSkipMirroredElicitation_ConcreteRuntimeClassification(t *testing.T)
 
 	assert.True(t, mustSkipMirroredElicitation((*runtime.LocalRuntime)(nil)),
 		"LocalRuntime mirrors OnElicitationRequest sink deliveries onto RunStream; App must skip the duplicate RunStream copy")
-	assert.False(t, mustSkipMirroredElicitation((*runtime.RemoteRuntime)(nil)),
+	assert.False(t, mustSkipMirroredElicitation((*remote.Runtime)(nil)),
 		"RemoteRuntime delivers elicitations ONLY via RunStream (its OnElicitationRequest sink is a no-op); App must not skip that copy")
 }
 

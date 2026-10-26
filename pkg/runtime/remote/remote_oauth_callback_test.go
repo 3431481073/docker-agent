@@ -1,4 +1,4 @@
-package runtime
+package remote
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentruntime "github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tools/mcp/oauthflow"
 )
@@ -70,9 +71,9 @@ func TestRemoteOAuthCallbackFlow(t *testing.T) {
 			})
 			defer restoreBrowser()
 			client := &elicitationRecordingClient{}
-			rt, err := NewRemoteRuntime(client)
+			rt, err := NewRuntime(client)
 			require.NoError(t, err)
-			err = rt.handleOAuthElicitation(t.Context(), "session", &ElicitationRequestEvent{
+			err = rt.handleOAuthElicitation(t.Context(), "session", &agentruntime.ElicitationRequestEvent{
 				ElicitationID: "oauth-request",
 				Meta: map[string]any{
 					"docker-agent/server_url": server.URL,

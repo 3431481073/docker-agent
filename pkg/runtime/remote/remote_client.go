@@ -1,18 +1,19 @@
-package runtime
+package remote
 
 import (
 	"context"
 
 	"github.com/docker/docker-agent/pkg/api"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	agentruntime "github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-// RemoteClient is the interface that both HTTP and Connect-RPC clients implement
+// Backend is the interface that both HTTP and Connect-RPC clients implement
 // for communicating with a remote docker agent server. It provides methods for
 // creating sessions, running agents, and streaming events.
-type RemoteClient interface {
+type Backend interface {
 	// GetAgent retrieves an agent configuration by ID
 	GetAgent(ctx context.Context, id string) (*latest.Config, error)
 
@@ -31,10 +32,10 @@ type RemoteClient interface {
 	// RunAgent executes an agent and returns a channel of streaming events.
 	// model, when non-empty, is applied as a persistent override on the
 	// session's current agent before the turn starts.
-	RunAgent(ctx context.Context, sessionID, agent string, messages []api.Message, model string) (<-chan Event, error)
+	RunAgent(ctx context.Context, sessionID, agent string, messages []api.Message, model string) (<-chan agentruntime.Event, error)
 
 	// RunAgentWithAgentName executes an agent with a specific agent name. See RunAgent for the meaning of model.
-	RunAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message, model string) (<-chan Event, error)
+	RunAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message, model string) (<-chan agentruntime.Event, error)
 
 	// SteerSession injects user messages into a running session mid-turn
 	SteerSession(ctx context.Context, sessionID string, messages []api.Message) error
@@ -49,7 +50,7 @@ type RemoteClient interface {
 	GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error)
 
 	// StreamSessionEvents streams runtime events for a session as they occur
-	StreamSessionEvents(ctx context.Context, sessionID string) (<-chan Event, error)
+	StreamSessionEvents(ctx context.Context, sessionID string) (<-chan agentruntime.Event, error)
 
 	// GetAllSessions retrieves all sessions from the remote store
 	GetAllSessions(ctx context.Context) ([]session.Session, error)
@@ -109,4 +110,4 @@ type RemoteClient interface {
 	SetSessionStarred(ctx context.Context, sessionID string, starred bool) error
 }
 
-var _ RemoteClient = (*Client)(nil)
+var _ Backend = (*Client)(nil)
