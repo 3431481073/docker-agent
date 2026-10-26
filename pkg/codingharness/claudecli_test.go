@@ -260,6 +260,34 @@ func TestClaudeCodeComplete(t *testing.T) {
 	assert.Equal(t, "--help me title this", string(stdin), "the prompt goes through stdin, never argv")
 }
 
+// With verbose mode on in the user's config, Claude Code 2.1.310 prints every
+// message of the run instead of the result alone.
+func TestClaudeCodeCompleteVerboseOutput(t *testing.T) {
+	for name, output := range map[string]string{
+		"result last": `[
+  {"type":"system","subtype":"init","tools":[],"mcp_servers":[],"model":"claude-haiku-5-5"},
+  {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fix the login bug"}]}},
+  {"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}},
+  {"type":"result","subtype":"success","is_error":false,"result":"Fix the login bug"}
+]`,
+		"notice after the result": `[
+  {"type":"system","subtype":"init","tools":[],"mcp_servers":[],"model":"claude-haiku-5-5"},
+  {"type":"result","subtype":"success","is_error":false,"result":"Fix the login bug"},
+  {"type":"system","subtype":"informational","content":"notice"}
+]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			useClaudeCompleteCLI(t, output, 0)
+			p, err := Factory(&latest.HarnessConfig{Type: TypeClaudeCode})
+			require.NoError(t, err)
+
+			answer, err := p.(harness.Completer).Complete(t.Context(), "system", "prompt")
+			require.NoError(t, err)
+			assert.Equal(t, "Fix the login bug", answer)
+		})
+	}
+}
+
 func TestClaudeCodeCompleteErrorsOmitOutput(t *testing.T) {
 	for name, tt := range map[string]struct {
 		output string
@@ -270,6 +298,12 @@ func TestClaudeCodeCompleteErrorsOmitOutput(t *testing.T) {
 		"not json":       {output: "private-output-marker", want: "unexpected output"},
 		"not a result":   {output: `{"type":"private-output-marker"}`, want: "unexpected output"},
 		"failed command": {output: "private-output-marker", code: 1, want: "exit status 1"},
+		"verbose reported error": {
+			output: `[{"type":"system","subtype":"init"},{"type":"result","is_error":true,"result":"private-output-marker"}]`,
+			want:   "reported an error",
+		},
+		"verbose without result": {output: `[{"type":"assistant","message":"private-output-marker"}]`, want: "unexpected output"},
+		"empty array":            {output: `[]`, want: "unexpected output"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			useClaudeCompleteCLI(t, tt.output, tt.code)

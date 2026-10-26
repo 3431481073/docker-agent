@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -211,18 +212,38 @@ func (claudeCodeProvider) Complete(ctx context.Context, systemPrompt, prompt str
 		return "", fmt.Errorf("`claude --print` failed: %w", err)
 	}
 
-	var result struct {
-		Type    string `json:"type"`
-		IsError bool   `json:"is_error"`
-		Result  string `json:"result"`
-	}
-	if err := json.Unmarshal(out, &result); err != nil || result.Type != "result" {
+	result, ok := claudeFinalResult(out)
+	if !ok {
 		return "", errors.New("`claude --print` returned unexpected output")
 	}
 	if result.IsError {
 		return "", errors.New("`claude --print` reported an error")
 	}
 	return result.Result, nil
+}
+
+// claudeResult is the result message of `claude --print --output-format json`.
+type claudeResult struct {
+	Type    string `json:"type"`
+	IsError bool   `json:"is_error"`
+	Result  string `json:"result"`
+}
+
+// claudeFinalResult returns the run's last result message. When verbose mode is
+// on in the user's config, the CLI prints every message as an array instead,
+// and system notices can follow the result.
+func claudeFinalResult(out []byte) (claudeResult, bool) {
+	var messages []json.RawMessage
+	if json.Unmarshal(out, &messages) != nil {
+		messages = []json.RawMessage{out}
+	}
+	for _, message := range slices.Backward(messages) {
+		var result claudeResult
+		if json.Unmarshal(message, &result) == nil && result.Type == "result" {
+			return result, true
+		}
+	}
+	return claudeResult{}, false
 }
 
 func claudeCompleteArgs(systemPrompt string) []string {
