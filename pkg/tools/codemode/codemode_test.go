@@ -732,8 +732,6 @@ type capableToolSet struct {
 	testToolSet
 
 	elicitationHandler        tools.ElicitationHandler
-	samplingHandler           tools.SamplingHandler
-	samplingWithToolsHandler  tools.SamplingWithToolsHandler
 	oauthSuccessHandler       func()
 	managedOAuth              bool
 	unmanagedOAuthRedirectURI string
@@ -741,23 +739,13 @@ type capableToolSet struct {
 }
 
 var (
-	_ tools.Elicitable          = (*capableToolSet)(nil)
-	_ tools.Sampleable          = (*capableToolSet)(nil)
-	_ tools.SampleableWithTools = (*capableToolSet)(nil)
-	_ tools.OAuthCapable        = (*capableToolSet)(nil)
-	_ tools.ChangeSubscriber    = (*capableToolSet)(nil)
+	_ tools.Elicitable       = (*capableToolSet)(nil)
+	_ tools.OAuthCapable     = (*capableToolSet)(nil)
+	_ tools.ChangeSubscriber = (*capableToolSet)(nil)
 )
 
 func (c *capableToolSet) SetElicitationHandler(handler tools.ElicitationHandler) {
 	c.elicitationHandler = handler
-}
-
-func (c *capableToolSet) SetSamplingHandler(handler tools.SamplingHandler) {
-	c.samplingHandler = handler
-}
-
-func (c *capableToolSet) SetSamplingWithToolsHandler(handler tools.SamplingWithToolsHandler) {
-	c.samplingWithToolsHandler = handler
 }
 
 func (c *capableToolSet) SetOAuthSuccessHandler(handler func()) {
@@ -789,24 +777,16 @@ func TestCodeModeTool_ConfiguresCapabilityHandlers(t *testing.T) {
 	elicitHandler := func(context.Context, *mcp.ElicitParams) (tools.ElicitationResult, error) {
 		return tools.ElicitationResult{}, nil
 	}
-	samplingHandler := func(context.Context, *mcp.CreateMessageParams) (*mcp.CreateMessageResult, error) {
-		return nil, nil
-	}
-	samplingWithToolsHandler := func(context.Context, *mcp.CreateMessageWithToolsParams) (*mcp.CreateMessageWithToolsResult, error) {
-		return nil, nil
-	}
 	oauthCalled := false
 
 	// tools.ConfigureHandlers is the exact call the runtime makes once per
 	// turn (see configureToolsetHandlers in pkg/runtime/loop.go); routing
 	// through it here instead of casting to each capability interface
 	// directly keeps this test aligned with the real call site.
-	tools.ConfigureHandlers(tool, elicitHandler, samplingHandler, samplingWithToolsHandler,
+	tools.ConfigureHandlers(tool, elicitHandler,
 		func() { oauthCalled = true }, true, "http://127.0.0.1:1234/callback")
 
 	require.NotNil(t, capable.elicitationHandler)
-	require.NotNil(t, capable.samplingHandler)
-	require.NotNil(t, capable.samplingWithToolsHandler)
 	require.NotNil(t, capable.oauthSuccessHandler)
 	capable.oauthSuccessHandler()
 	assert.True(t, oauthCalled)
@@ -833,7 +813,7 @@ func TestCodeModeTool_ConfiguresCapabilitiesThroughStartableWrapper(t *testing.T
 	handler := func(context.Context, *mcp.ElicitParams) (tools.ElicitationResult, error) {
 		return tools.ElicitationResult{}, nil
 	}
-	tools.ConfigureHandlers(tool, handler, nil, nil, nil, false, "")
+	tools.ConfigureHandlers(tool, handler, nil, false, "")
 
 	assert.NotNil(t, capable.elicitationHandler)
 }

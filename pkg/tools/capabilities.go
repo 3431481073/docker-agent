@@ -78,21 +78,6 @@ type Elicitable interface {
 	SetElicitationHandler(handler ElicitationHandler)
 }
 
-// Sampleable is implemented by toolsets that support MCP sampling
-// (sampling/createMessage). MCP servers use sampling to delegate LLM calls
-// back to the host; the handler is expected to drive the host's model.
-type Sampleable interface {
-	SetSamplingHandler(handler SamplingHandler)
-}
-
-// SampleableWithTools is implemented by toolsets that support MCP sampling
-// requests carrying a tools array (sampling-with-tools). The handler is
-// invoked instead of the basic SamplingHandler when both are registered and
-// the SDK negotiates the with-tools variant on the wire.
-type SampleableWithTools interface {
-	SetSamplingWithToolsHandler(handler SamplingWithToolsHandler)
-}
-
 // OAuthCapable is implemented by toolsets that support OAuth flows.
 type OAuthCapable interface {
 	SetOAuthSuccessHandler(handler func())
@@ -185,15 +170,9 @@ func (c *ChangeSubscribers) Notify() {
 }
 
 // ConfigureHandlers sets all applicable handlers throughout a toolset graph.
-func ConfigureHandlers(ts ToolSet, elicitHandler ElicitationHandler, samplingHandler SamplingHandler, samplingWithToolsHandler SamplingWithToolsHandler, oauthHandler func(), managedOAuth bool, unmanagedOAuthRedirectURI string) {
+func ConfigureHandlers(ts ToolSet, elicitHandler ElicitationHandler, oauthHandler func(), managedOAuth bool, unmanagedOAuthRedirectURI string) {
 	for _, e := range FindAll[Elicitable](ts) {
 		e.SetElicitationHandler(elicitHandler)
-	}
-	for _, s := range FindAll[Sampleable](ts) {
-		s.SetSamplingHandler(samplingHandler)
-	}
-	for _, s := range FindAll[SampleableWithTools](ts) {
-		s.SetSamplingWithToolsHandler(samplingWithToolsHandler)
 	}
 	for _, o := range FindAll[OAuthCapable](ts) {
 		o.SetOAuthSuccessHandler(oauthHandler)

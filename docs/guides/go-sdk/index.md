@@ -922,7 +922,6 @@ embedding, context-discovery or compaction capabilities.
 | Caller | Clone failure behavior |
 | --- | --- |
 | Session title | Tries the next configured candidate; exhaustion does not interrupt chat. |
-| MCP sampling, with or without tools | Returns the actionable clone error before inference. |
 | LLM compaction | Reports failure and leaves the session history intact. |
 | Compaction window resolution | The checked resolver returns zero plus the error; the LLM compaction path reports it. UI gauges remain best-effort. |
 

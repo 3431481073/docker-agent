@@ -464,7 +464,7 @@ GOOS=js GOARCH=wasm go test -count=1 \
 Expected: selected fixtures run rather than skip and their existing assertions
 pass. They cover streaming keepalives/tool replay, request wire shape, auth and
 transport wrapping, embeddings, image-output guards, runtime/TUI error propagation,
-CLI tools/title/sampling, and WASM session/token flows. These are existing
+CLI tools/title, and WASM session/token flows. These are existing
 regressions, not live-backend entitlement or new model acceptance tests. Record
 head SHA, OS/Go/Node versions, command, pass/fail/skip and sanitized evidence.
 A skip is not a pass, and pure unit success is not integration evidence.

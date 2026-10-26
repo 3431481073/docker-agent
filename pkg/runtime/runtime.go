@@ -1530,9 +1530,7 @@ func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, add
 	// Manual compaction bypasses RunStream, but native compaction may start tools.
 	ctx = genai.WithConversationID(ctx, sess.ID)
 	ctx = tools.WithHandlerScope(ctx, tools.HandlerScope{
-		Elicitation:       r.elicitationHandler,
-		Sampling:          r.samplingHandler,
-		SamplingWithTools: r.samplingWithToolsHandler,
+		Elicitation: r.elicitationHandler,
 		OAuthSuccess: func() {
 			events.Emit(Authorization(tools.ElicitationActionAccept, r.resolveSessionAgent(sess).Name()))
 		},

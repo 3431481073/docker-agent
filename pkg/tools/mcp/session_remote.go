@@ -76,7 +76,7 @@ func (c *sessionRemoteClient) Initialize(ctx context.Context, _ *gomcp.Initializ
 	}
 	changed, prompts := c.notificationHandlers()
 	opts := &gomcp.ClientOptions{ElicitationHandler: c.handleElicitationRequest, ToolListChangedHandler: changed, PromptListChangedHandler: prompts}
-	c.applySamplingHandlerOpts(opts)
+
 	client := gomcp.NewClient(&gomcp.Implementation{Name: "docker agent", Version: "1.0.0"}, opts)
 	session, err := client.Connect(lifetime, &sessionRemoteTransport{Transport: transport, owner: c}, nil)
 	if err != nil {
