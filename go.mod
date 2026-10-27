@@ -35,7 +35,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/dgageot/rubocop-go v1.1.0
 	github.com/docker/aijson v0.1.0
-	github.com/docker/cli v29.9.1+incompatible
+	github.com/docker/cli v29.9.2+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/docker/portcullis v1.1.3
 	github.com/docker/secrets-engine/client v0.2.2
