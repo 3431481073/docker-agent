@@ -202,7 +202,11 @@ func walkSchema(schema map[string]any, fn func(map[string]any)) {
 // $ref nodes are left untouched (no additionalProperties/type injection): a
 // newly-required $ref property is instead wrapped as
 // {"anyOf": [<$ref>, {"type": "null"}]}, OpenAI's documented pattern for an
-// optional reference, so the model isn't forced to always emit it.
+// optional reference, so the model isn't forced to always emit it. Nullable
+// array and object properties use the same anyOf form, whether they were
+// newly made nullable or already declared as a ["array", "null"] type pair:
+// strict mode rejects the type-pair form when the object lives behind a
+// $ref/$defs indirection. Scalar properties keep the ["T", "null"] form.
 func makeAllRequired(schema shared.FunctionParameters) shared.FunctionParameters {
 	if schema == nil {
 		schema = map[string]any{"type": "object", "properties": map[string]any{}}
@@ -255,16 +259,29 @@ func makeAllRequired(schema shared.FunctionParameters) shared.FunctionParameters
 		propertyOrder := tools.SchemaPropertyNames(node)
 		for _, propName := range propertyOrder {
 			newRequired = append(newRequired, propName)
-			if !originallyRequired[propName] {
-				if propMap, ok := properties[propName].(map[string]any); ok {
-					if _, isRef := propMap["$ref"]; isRef {
-						properties[propName] = map[string]any{
-							"anyOf": []any{propMap, map[string]any{"type": "null"}},
-						}
-					} else if t, ok := propMap["type"].(string); ok {
-						propMap["type"] = []string{t, "null"}
-					}
-				}
+
+			propMap, ok := properties[propName].(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if containerType, ok := nullableContainerType(propMap); ok {
+				propMap["type"] = containerType
+				properties[propName] = nullableAnyOf(propMap)
+				continue
+			}
+
+			if originallyRequired[propName] {
+				continue
+			}
+
+			_, isRef := propMap["$ref"]
+			t, isScalarType := propMap["type"].(string)
+			switch {
+			case isRef || t == "array" || t == "object":
+				properties[propName] = nullableAnyOf(propMap)
+			case isScalarType:
+				propMap["type"] = []string{t, "null"}
 			}
 		}
 
@@ -272,6 +289,44 @@ func makeAllRequired(schema shared.FunctionParameters) shared.FunctionParameters
 	})
 
 	return schema
+}
+
+// nullableContainerType reports the container type ("array" or "object") of a
+// schema whose "type" is exactly that container type plus "null", in either
+// order and in any of the slice representations produced by schema generators.
+func nullableContainerType(schema map[string]any) (string, bool) {
+	var types []string
+	switch t := schema["type"].(type) {
+	case []string:
+		types = t
+	case []any:
+		for _, v := range t {
+			s, ok := v.(string)
+			if !ok {
+				return "", false
+			}
+			types = append(types, s)
+		}
+	default:
+		return "", false
+	}
+
+	if len(types) != 2 {
+		return "", false
+	}
+	for i, t := range types {
+		other := types[1-i]
+		if t == "null" && (other == "array" || other == "object") {
+			return other, true
+		}
+	}
+	return "", false
+}
+
+func nullableAnyOf(schema map[string]any) map[string]any {
+	return map[string]any{
+		"anyOf": []any{schema, map[string]any{"type": "null"}},
+	}
 }
 
 // isCompositionNode reports whether node describes its shape via $ref or a
@@ -346,21 +401,32 @@ func fixSchemaArrayItems(schema shared.FunctionParameters) shared.FunctionParame
 			continue
 		}
 
-		checkForMissingItems := false
-		switch t := prop["type"].(type) {
-		case string:
-			checkForMissingItems = t == "array"
-		case []string:
-			checkForMissingItems = slices.Contains(t, "array")
-		}
-		if !checkForMissingItems {
-			continue
-		}
-
-		if _, ok := prop["items"]; !ok {
-			prop["items"] = map[string]any{"type": "object"}
+		addMissingArrayItems(prop)
+		if variants, ok := prop["anyOf"].([]any); ok {
+			for _, variant := range variants {
+				if variantMap, ok := variant.(map[string]any); ok {
+					addMissingArrayItems(variantMap)
+				}
+			}
 		}
 	}
 
 	return schema
+}
+
+func addMissingArrayItems(schema map[string]any) {
+	isArray := false
+	switch t := schema["type"].(type) {
+	case string:
+		isArray = t == "array"
+	case []string:
+		isArray = slices.Contains(t, "array")
+	}
+	if !isArray {
+		return
+	}
+
+	if _, ok := schema["items"]; !ok {
+		schema["items"] = map[string]any{"type": "object"}
+	}
 }
