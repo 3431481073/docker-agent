@@ -358,7 +358,9 @@ func CreateToolSet(ctx context.Context, toolset latest.Toolset, runConfig *confi
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand the tool's environment variables: %w", err)
 	}
-	env = append(env, os.Environ()...)
+	// Host first so the configured env wins: exec.Cmd keeps the last value for a duplicate
+	// key, which is the layering shell/script toolsets document.
+	env = append(os.Environ(), env...)
 	env = toolinstall.PrependBinDirToEnv(env)
 
 	cwd := workingdir.Resolve(toolset.WorkingDir, runConfig.WorkingDir)
