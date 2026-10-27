@@ -590,7 +590,7 @@ The **Appearance** tab selects the theme and customizes the layout. Layout chang
 
 Appearance also controls split-diff rendering, expanded thinking, whether tool results are hidden by default, and **Show startup banner** — the ASCII-art banner drawn on an empty conversation (persisted as `settings.show_banner: false` when turned off, and honored by the lean TUI too). Select **Theme** to open the theme picker.
 
-The **Behavior** tab controls busy-message handling, the auto-approve default, tab restoration, automatic snapshots, lean UI, and the maximum tab-title length. Restore-tabs and lean-UI changes take effect on the next launch. Enabling auto-approve requires confirmation.
+The **Behavior** tab controls busy-message handling, the auto-approve default, tab restoration, automatic snapshots, [background compaction](../../configuration/user-settings/index.md) (opt-in, with its start threshold as a context-window percentage), lean UI, and the maximum tab-title length. Restore-tabs and lean-UI changes take effect on the next launch. Enabling auto-approve requires confirmation.
 
 The **Notifications** tab enables completion sounds and sets the minimum task duration before a sound plays.
 
