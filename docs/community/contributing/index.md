@@ -130,7 +130,7 @@ cumulative, not peak memory, and profiles do not include `go/packages` subproces
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
-Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/0bcefab0242e991adbd535e1acc9c6c680d68d5d/docs/shared-cops.md)
+Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/0b7e76d9373ad390ac84652375150459bde13ebe/docs/shared-cops.md)
 (pinned in `go.mod`); project-specific checks and frozen-config exclusions stay
 in `lint/`. Cop IDs and `//rubocop:disable` annotations are unchanged. Add shared checks by their
 constructors, not by enabling the entire upstream catalog. 40 of the 42 shared
