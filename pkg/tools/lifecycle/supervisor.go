@@ -137,7 +137,7 @@ type Policy struct {
 	MaxAttempts int     // 0 = default (5); negative = unlimited
 	Backoff     Backoff // zero fields use Backoff defaults
 
-	// StartupTimeout bounds the initial Connect performed by Start. Zero
+	// StartupTimeout bounds teardown waiting and the initial Connect in Start. Zero
 	// means no timeout. It is enforced by racing Connect against a timer
 	// rather than via a context deadline, so it still interrupts connectors
 	// (notably MCP) that detach the context they are handed with
@@ -161,6 +161,11 @@ type Policy struct {
 	OnRestart func(ctx context.Context)
 	// OnFailed is called once when the supervisor enters StateFailed.
 	OnFailed func(err error)
+
+	// Shutdown wraps session close and watcher teardown during Stop. It must
+	// finish all transport cleanup before returning. Concurrent Stops share
+	// one invocation, and Start waits for it before reusing the connector.
+	Shutdown func(ctx context.Context, teardown func() error) error
 
 	// Logger is used for lifecycle logs. Defaults to slog.Default().
 	Logger *slog.Logger
@@ -203,8 +208,9 @@ type Supervisor struct {
 	mu            sync.Mutex
 	session       Session
 	stopping      bool
-	stopDone      chan struct{} // closed after session close and watcher exit
-	connectReaped chan struct{} // closed after a stopped startup handshake is reaped
+	stopDone      chan struct{}      // closed after session close and watcher exit
+	stopCancel    context.CancelFunc // lets concurrent Stops interrupt the same teardown
+	connectReaped chan struct{}      // closed after a stopped startup handshake is reaped
 	watcherAlive  bool
 	forceRestart  bool          // set by RestartAndWait so the watcher reconnects
 	restarted     chan struct{} // closed and replaced on each successful restart
@@ -292,7 +298,7 @@ func (s *Supervisor) Restarted() <-chan struct{} {
 // the watcher goroutine is launched (if not already alive) and state moves
 // to Ready. Concurrent Start calls serialize.
 //
-// When policy.StartupTimeout is non-zero the connect is bounded by it; on
+// When policy.StartupTimeout is non-zero teardown and connect share its budget; on
 // expiry Start returns ErrInitTimeout and stays in StateStopped.
 // After Stop, Start waits for teardown before reconnecting.
 func (s *Supervisor) Start(ctx context.Context) error {
@@ -304,15 +310,21 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
+	var timeout <-chan time.Time
+	if s.policy.StartupTimeout > 0 {
+		timer := time.NewTimer(s.policy.StartupTimeout)
+		defer timer.Stop()
+		timeout = timer.C
+	}
 	if s.stopping {
 		stopDone, connectReaped := s.stopDone, s.connectReaped
 		s.mu.Unlock()
 		// Do not reuse the connector until the old watcher and any late
 		// handshake have finished closing their shared transport.
-		if err := waitForWatcher(ctx, stopDone); err != nil {
+		if err := s.waitForTeardown(ctx, stopDone, timeout); err != nil {
 			return err
 		}
-		if err := waitForWatcher(ctx, connectReaped); err != nil {
+		if err := s.waitForTeardown(ctx, connectReaped, timeout); err != nil {
 			return err
 		}
 		s.mu.Lock()
@@ -331,7 +343,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 
 	s.tracker.Set(StateStarting)
 
-	sess, err := s.connect(ctx)
+	sess, err := s.connect(ctx, timeout)
 	if err != nil {
 		s.tracker.Fail(StateStopped, err)
 		return err
@@ -409,7 +421,7 @@ type pendingConnect struct {
 // spawning a new attempt per turn would accumulate orphaned handshakes and,
 // for stdio, leak subprocesses. A handshake that eventually completes is
 // adopted by the next Start.
-func (s *Supervisor) connect(ctx context.Context) (Session, error) {
+func (s *Supervisor) connect(ctx context.Context, timeout <-chan time.Time) (Session, error) {
 	if s.policy.StartupTimeout <= 0 {
 		return s.connector.Connect(ctx)
 	}
@@ -434,9 +446,6 @@ func (s *Supervisor) connect(ctx context.Context) (Session, error) {
 	}
 	s.mu.Unlock()
 
-	timer := time.NewTimer(s.policy.StartupTimeout)
-	defer timer.Stop()
-
 	select {
 	case <-p.done:
 		s.mu.Lock()
@@ -459,8 +468,8 @@ func (s *Supervisor) connect(ctx context.Context) (Session, error) {
 			return nil, res.err
 		}
 		return res.sess, res.err
-	case <-timer.C:
-		return nil, wrap(ErrInitTimeout, fmt.Errorf("%q did not connect within %s", s.name, s.policy.StartupTimeout))
+	case <-timeout:
+		return nil, s.initTimeoutError()
 	}
 }
 
@@ -483,14 +492,21 @@ func (s *Supervisor) reapPendingConnect(ctx context.Context, p *pendingConnect) 
 }
 
 // Stop tears the supervisor down. Idempotent. Blocks until the underlying
-// session is closed.
+// session is closed. Cancellation by any concurrent caller interrupts teardown.
 func (s *Supervisor) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopping {
-		stopDone := s.stopDone
+		stopDone, cancel := s.stopDone, s.stopCancel
 		s.mu.Unlock()
-		return waitForWatcher(ctx, stopDone)
+		err := waitForWatcher(ctx, stopDone)
+		if ctx.Err() != nil {
+			cancel()
+		}
+		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.stopCancel = cancel
 	s.stopping = true
 	stopDone := make(chan struct{})
 	s.stopDone = stopDone
@@ -524,12 +540,24 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 		}()
 	}
 
-	var closeErr error
-	if sess != nil {
-		closeErr = sess.Close(context.WithoutCancel(ctx))
+	teardown := func() error {
+		var closeErr error
+		if sess != nil {
+			closeErr = sess.Close(context.WithoutCancel(ctx))
+		}
+		waitErr := waitForWatcher(ctx, watchDone)
+		if closeErr != nil && ctx.Err() == nil {
+			return closeErr
+		}
+		return waitErr
 	}
-	waitErr := waitForWatcher(ctx, watchDone)
-	if waitErr == nil {
+	var err error
+	if shutdown := s.policy.Shutdown; shutdown != nil {
+		err = shutdown(ctx, teardown)
+	} else {
+		err = teardown()
+	}
+	if waitForWatcher(ctx, watchDone) == nil {
 		close(stopDone)
 	} else {
 		go func() {
@@ -537,10 +565,25 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 			close(stopDone)
 		}()
 	}
-	if closeErr != nil && ctx.Err() == nil {
-		return closeErr
+	return err
+}
+
+func (s *Supervisor) initTimeoutError() error {
+	return wrap(ErrInitTimeout, fmt.Errorf("%q did not connect within %s", s.name, s.policy.StartupTimeout))
+}
+
+func (s *Supervisor) waitForTeardown(ctx context.Context, done <-chan struct{}, timeout <-chan time.Time) error {
+	if done == nil {
+		return nil
 	}
-	return waitErr
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timeout:
+		return s.initTimeoutError()
+	}
 }
 
 func waitForWatcher(ctx context.Context, done <-chan struct{}) error {

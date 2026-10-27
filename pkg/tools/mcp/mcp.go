@@ -357,7 +357,7 @@ func firstOrZero[T any](s []T) T {
 
 // newSupervisor constructs a Supervisor wired to the toolset's mcpClient
 // using the provided policy as a base. Internal callbacks (OnDisconnect,
-// OnRestart, Logger) are always overridden so the supervisor can
+// OnRestart, Shutdown, Logger) are always overridden so the supervisor can
 // invalidate caches and refresh tools/prompts on reconnect; any values
 // passed in for those fields are ignored.
 //
@@ -367,6 +367,10 @@ func firstOrZero[T any](s []T) T {
 func newSupervisor(ts *Toolset, base lifecycle.Policy) *lifecycle.Supervisor {
 	connector := &clientConnector{ts: ts}
 	policy := base
+	policy.Shutdown = nil
+	if ts.sessionOwned {
+		policy.Shutdown = ts.shutdown
+	}
 	policy.Logger = slog.With("component", "mcp.supervisor", "server", ts.logID)
 	policy.OnDisconnect = func(error) {
 		ts.mu.Lock()
@@ -531,28 +535,7 @@ func (ts *Toolset) Stop(ctx context.Context) error {
 		return nil
 	}
 	if ts.sessionOwned {
-		var forceClose func()
-		var finalize func(context.Context) error
-		switch client := ts.mcpClient.(type) {
-		case *stdioMCPClient:
-			forceClose = client.cancelProcess
-		case *sessionRemoteClient:
-			forceClose = client.forceClose
-			finalize = client.Close
-		}
-		forced := make(chan struct{})
-		stopForce := context.AfterFunc(ctx, func() { forceClose(); close(forced) })
-		defer func() {
-			if !stopForce() {
-				<-forced
-			}
-			forceClose()
-		}()
-		err := ts.supervisor.Stop(ctx)
-		if finalize != nil {
-			err = errors.Join(err, finalize(ctx))
-		}
-		return errors.Join(err, ctx.Err())
+		return ts.supervisor.Stop(ctx)
 	}
 	if err := ts.supervisor.Stop(ctx); err != nil && ctx.Err() == nil {
 		slog.ErrorContext(ctx, "Failed to stop MCP toolset", "server", ts.logID, "error", err)
@@ -560,6 +543,32 @@ func (ts *Toolset) Stop(ctx context.Context) error {
 	}
 	slog.DebugContext(ctx, "Stopped MCP toolset successfully", "server", ts.logID)
 	return nil
+}
+
+// shutdown keeps session-owned transport cleanup inside the supervisor's stop barrier.
+func (ts *Toolset) shutdown(ctx context.Context, teardown func() error) error {
+	var forceClose func()
+	var finalize func(context.Context) error
+	switch client := ts.mcpClient.(type) {
+	case *stdioMCPClient:
+		forceClose = client.cancelProcess
+	case *sessionRemoteClient:
+		forceClose = client.forceClose
+		finalize = client.Close
+	}
+	forced := make(chan struct{})
+	stopForce := context.AfterFunc(ctx, func() { forceClose(); close(forced) })
+	defer func() {
+		if !stopForce() {
+			<-forced
+		}
+		forceClose()
+	}()
+	err := teardown()
+	if finalize != nil {
+		err = errors.Join(err, finalize(ctx))
+	}
+	return errors.Join(err, ctx.Err())
 }
 
 // clientConnector adapts an mcpClient to the lifecycle.Connector interface.
@@ -680,6 +689,7 @@ func (c *clientConnector) Connect(ctx context.Context) (lifecycle.Session, error
 	slog.DebugContext(ctx, "Started MCP toolset successfully", "server", ts.logID)
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+	ts.invalidateCache()
 	ts.instructions = result.Instructions
 
 	return &clientSession{client: ts.mcpClient}, nil

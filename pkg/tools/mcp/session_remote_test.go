@@ -518,3 +518,30 @@ func TestSessionRemoteDoesNotResumeInterruptedStream(t *testing.T) {
 	require.Error(t, err)
 	assert.Zero(t, gets.Load(), "SDK must not resume a client-owned SSE stream")
 }
+
+func TestSessionRemoteStartAfterStop(t *testing.T) {
+	t.Parallel()
+	for _, transport := range []string{"streamable", "sse"} {
+		t.Run(transport, func(t *testing.T) {
+			t.Parallel()
+			server := gomcp.NewServer(&gomcp.Implementation{Name: "resume", Version: "1"}, nil)
+			gomcp.AddTool(server, &gomcp.Tool{Name: "ping"}, func(context.Context, *gomcp.CallToolRequest, struct{}) (*gomcp.CallToolResult, any, error) {
+				return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: "pong"}}}, nil, nil
+			})
+			hs := httptest.NewServer(sessionRemoteHandler(transport, server))
+			defer hs.Close()
+			ts := localSessionRemote(t, hs.URL, transport, nil)
+			defer func() { require.NoError(t, ts.Stop(t.Context())) }()
+			for range 3 {
+				require.NoError(t, ts.Start(t.Context()))
+				available, err := ts.Tools(t.Context())
+				require.NoError(t, err)
+				require.Len(t, available, 1)
+				result, err := available[0].Handler(t.Context(), tools.ToolCall{Function: tools.FunctionCall{Name: available[0].Name, Arguments: "{}"}}, tools.NopRuntime{})
+				require.NoError(t, err)
+				assert.Equal(t, "pong", result.Output)
+				require.NoError(t, ts.Stop(t.Context()))
+			}
+		})
+	}
+}
