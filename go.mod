@@ -37,7 +37,7 @@ require (
 	github.com/docker/aijson v0.1.0
 	github.com/docker/cli v29.9.2+incompatible
 	github.com/docker/go-units v0.5.0
-	github.com/docker/portcullis v1.1.3
+	github.com/docker/portcullis v1.1.4
 	github.com/docker/secrets-engine/client v0.2.2
 	github.com/docker/secrets-engine/x v0.8.5
 	github.com/dop251/goja v0.0.0-20261019185110-cf7b1419c9c0
