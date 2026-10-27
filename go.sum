@@ -186,8 +186,8 @@ github.com/docker/secrets-engine/client v0.2.2 h1:aPvmlzsxNA+C+xgp2F+WiiDbCSAXHC
 github.com/docker/secrets-engine/client v0.2.2/go.mod h1:c3l/N+fA0kiy9S8BE3kKrO5hOZu4+SLYZK9Jx+jc2cw=
 github.com/docker/secrets-engine/x v0.8.5 h1:P7D/YESMjpX18S4ratBgoeJkAFIxgsPxe093uFmgiGc=
 github.com/docker/secrets-engine/x v0.8.5/go.mod h1:jQ5CXCYCPn8Sw96TS8Ufq3oyIGH2GzUtVXIdwa2Q0VU=
-github.com/dop251/goja v0.0.0-20261019185110-cf7b1419c9c0 h1:pWHWMLDIG5IIPDoPqDp2ZxydcMQCvhO8tmfIIEXQqek=
-github.com/dop251/goja v0.0.0-20261019185110-cf7b1419c9c0/go.mod h1:Cp9NYOLrEKg/ypIRkUWYXWLuKAyyFGkDmGeJ95Sw0zI=
+github.com/dop251/goja v0.0.0-20261026132650-6b6a90e51946 h1:XiP6PJnb0OB3kzs3Wv7ynJFI8yG+zo+JgOa2G5rq6f8=
+github.com/dop251/goja v0.0.0-20261026132650-6b6a90e51946/go.mod h1:Cp9NYOLrEKg/ypIRkUWYXWLuKAyyFGkDmGeJ95Sw0zI=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/dvsekhvalnov/jose2go v1.7.0 h1:bnQc8+GMnidJZA8zc6lLEAb4xNrIqHwO+9TzqvtQZPo=
