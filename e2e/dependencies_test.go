@@ -216,6 +216,46 @@ func TestWasmDefaultBinaryDependencies(t *testing.T) {
 	}
 }
 
+func TestWasmRAGDependencies(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		tags string
+		rag  bool
+	}{
+		{name: "default"},
+		{name: "with RAG", tags: "docker_agent_wasm_rag", rag: true},
+		{name: "cloud", tags: "docker_agent_wasm_cloud"},
+		{name: "cloud with RAG", tags: "docker_agent_wasm_cloud,docker_agent_wasm_rag", rag: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-tags", tc.tags, "./cmd/wasm")
+			cmd.Dir = ".."
+			cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+			out, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", out)
+
+			const rag = "github.com/docker/docker-agent/pkg/rag"
+			const builtinRAG = "github.com/docker/docker-agent/pkg/tools/builtin/rag"
+			deps := strings.Fields(string(out))
+			if tc.rag {
+				assert.Contains(t, deps, rag)
+				assert.Contains(t, deps, builtinRAG)
+				return
+			}
+			for _, dep := range deps {
+				if dep == rag+"/types" || dep == rag+"/prompts" {
+					continue
+				}
+				for _, prefix := range []string{rag, builtinRAG, "github.com/fsnotify/fsnotify"} {
+					assert.False(t, dep == prefix || strings.HasPrefix(dep, prefix+"/"), "RAG dependency in the no-RAG WASM binary: %s", dep)
+				}
+			}
+		})
+	}
+}
+
 // listTransitiveDeps returns the full (non-test) dependency closure of the
 // given packages, as reported by `go list -deps`.
 func listTransitiveDeps(t *testing.T, pkgs ...string) map[string]bool {

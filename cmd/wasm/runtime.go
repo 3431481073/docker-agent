@@ -19,7 +19,6 @@ import (
 	"github.com/docker/docker-agent/pkg/js"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/modelsdev"
-	"github.com/docker/docker-agent/pkg/rag"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/teamloader"
@@ -48,7 +47,7 @@ type sessionOptions struct {
 	History []chat.Message
 	// Documents are the session's documents, keyed by logical path: the
 	// only thing `type: rag` toolsets can index. Nothing is read from disk.
-	Documents rag.Documents
+	Documents map[string][]byte
 }
 
 // host holds the registries every session is built from. The browser entry
@@ -58,7 +57,7 @@ type sessionOptions struct {
 // rag toolset sees the session's documents.
 type host struct {
 	providers   *provider.Registry
-	newToolsets func(documents rag.Documents) teamloader.ToolsetRegistry
+	newToolsets func(documents map[string][]byte) teamloader.ToolsetRegistry
 }
 
 var browserHost = host{providers: demoProviders, newToolsets: browserToolsets}
@@ -179,7 +178,7 @@ func (h host) newSession(ctx context.Context, opts sessionOptions) (*embeddedcha
 // toolset declarations that point at them (see checkBrowserToolset). The
 // loader only warns when a toolset fails to build, so this is what turns
 // those into a createSession rejection.
-func checkBrowserConfig(ctx context.Context, cfg *latest.Config, agentName string, env environment.Provider, documents rag.Documents) error {
+func checkBrowserConfig(ctx context.Context, cfg *latest.Config, agentName string, env environment.Provider, documents map[string][]byte) error {
 	if agentName != "" && !slices.ContainsFunc(cfg.Agents, func(a latest.AgentConfig) bool { return a.Name == agentName }) {
 		return fmt.Errorf("agent %q not found", agentName)
 	}

@@ -343,7 +343,7 @@ if err != nil {
 ts := ragtool.New(mgr, mgr.ToolName(), ragtool.WithIndexingTimeout(ragCfg.GetIndexingTimeout()))
 ```
 
-`cmd/wasm/toolsets.go` registers exactly this as the browser's `type: rag` creator, fed by `createSession`'s `documents` option.
+With `-tags docker_agent_wasm_rag`, `cmd/wasm/rag.go` registers this as the browser's `type: rag` creator, fed by `createSession`'s `documents` option. RAG is excluded from the default WASM build.
 
 ## Loading YAML with Hand-Picked Registries (lean embedding)
 
