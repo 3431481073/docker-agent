@@ -265,7 +265,7 @@ func makeAllRequired(schema shared.FunctionParameters) shared.FunctionParameters
 				continue
 			}
 
-			if containerType, ok := nullableContainerType(propMap); ok {
+			if containerType, isNullableContainer := nullableContainerType(propMap); isNullableContainer {
 				propMap["type"] = containerType
 				properties[propName] = nullableAnyOf(propMap)
 				continue
@@ -323,6 +323,8 @@ func nullableContainerType(schema map[string]any) (string, bool) {
 	return "", false
 }
 
+// nullableAnyOf wraps schema as {"anyOf": [schema, {"type": "null"}]}, the
+// nullable form OpenAI strict mode accepts for non-scalar schemas.
 func nullableAnyOf(schema map[string]any) map[string]any {
 	return map[string]any{
 		"anyOf": []any{schema, map[string]any{"type": "null"}},
@@ -414,6 +416,8 @@ func fixSchemaArrayItems(schema shared.FunctionParameters) shared.FunctionParame
 	return schema
 }
 
+// addMissingArrayItems gives an array schema without "items" a default
+// {"type": "object"} items schema, which OpenAI requires.
 func addMissingArrayItems(schema map[string]any) {
 	isArray := false
 	switch t := schema["type"].(type) {
