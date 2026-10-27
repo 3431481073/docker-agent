@@ -310,11 +310,16 @@ func TestSchemaForOpenai(t *testing.T) {
 			"type": ["string", "null"]
 		},
 		"labels": {
-			"description": "Filter",
-			"items": {
-				"type": "string"
-			},
-			"type": ["array", "null"]
+			"anyOf": [
+				{
+					"description": "Filter",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				{"type": "null"}
+			]
 		},
 		"perPage": {
 			"description": "Results",
