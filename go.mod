@@ -65,6 +65,7 @@ require (
 	github.com/pb33f/libopenapi v0.41.6
 	github.com/rivo/uniseg v0.4.7
 	github.com/rumpl/harness v0.0.0-20261013122321-04282da16ab5
+	github.com/rumpl/keepawake v0.1.0
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -150,6 +151,7 @@ require (
 	github.com/docker/go-metrics v0.0.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dvsekhvalnov/jose2go v1.7.0 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fvbommel/sortorder v1.2.0 // indirect
@@ -158,6 +160,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
+	github.com/godbus/dbus/v5 v5.2.4 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3 // indirect

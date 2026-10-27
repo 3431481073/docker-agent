@@ -108,6 +108,8 @@ type Settings struct {
 	// Sound enables playing notification sounds on task success or failure.
 	// Defaults to false (user must explicitly opt-in).
 	Sound bool `yaml:"sound,omitempty"`
+	// KeepAwake prevents idle system sleep during agent runs. Disabled by default.
+	KeepAwake bool `yaml:"keep_awake,omitempty"`
 	// SoundThreshold is the minimum duration in seconds a task must run
 	// before a success sound is played. Defaults to 5 seconds.
 	SoundThreshold int `yaml:"sound_threshold,omitempty"`
@@ -221,6 +223,11 @@ func (s *Settings) GetTabTitleMaxLength() int {
 		return DefaultTabTitleMaxLength
 	}
 	return s.TabTitleMaxLength
+}
+
+// GetKeepAwake reports whether agent runs should inhibit idle system sleep.
+func (s *Settings) GetKeepAwake() bool {
+	return s != nil && s.KeepAwake
 }
 
 // GetSound returns whether sound notifications are enabled, defaulting to false.

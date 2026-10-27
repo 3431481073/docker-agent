@@ -172,6 +172,7 @@ type Preferences struct {
 	WarnOnCacheMiss               bool
 	Lean                          bool
 	TabTitleMaxLength             int
+	KeepAwake                     bool
 	Sound                         bool
 	SoundThreshold                int
 	InterruptConfirmation         InterruptMode
