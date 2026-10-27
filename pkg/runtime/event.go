@@ -101,6 +101,24 @@ func PartialToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentNa
 	}
 }
 
+// ToolCallsRetractedEvent is sent when tool calls announced by
+// PartialToolCallEvent will never run: a refusal or a server fallback
+// superseded them.
+type ToolCallsRetractedEvent struct {
+	AgentContext
+
+	Type        string   `json:"type"`
+	ToolCallIDs []string `json:"tool_call_ids"`
+}
+
+func ToolCallsRetracted(toolCallIDs []string, agentName string) Event {
+	return &ToolCallsRetractedEvent{
+		Type:         "tool_calls_retracted",
+		ToolCallIDs:  toolCallIDs,
+		AgentContext: newAgentContext(agentName),
+	}
+}
+
 // ToolCallEvent is sent when a tool call is received
 type ToolCallEvent struct {
 	AgentContext
@@ -266,6 +284,27 @@ func AgentChoiceReasoning(agentName, sessionID, content string, messageID ...str
 		Content:      content,
 		SessionID:    sessionID,
 		AgentContext: newAgentContext(agentName),
+	}
+}
+
+// AgentChoiceReasoningResetEvent discards reasoning already streamed for one message.
+// Text and tool calls are unaffected; later reasoning starts from an empty buffer.
+type AgentChoiceReasoningResetEvent struct {
+	AgentContext
+
+	Type      string `json:"type"`
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+}
+
+func (e *AgentChoiceReasoningResetEvent) GetSessionID() string { return e.SessionID }
+
+func AgentChoiceReasoningReset(agentName, sessionID, messageID string) Event {
+	return &AgentChoiceReasoningResetEvent{
+		AgentContext: newAgentContext(agentName),
+		Type:         "agent_choice_reasoning_reset",
+		SessionID:    sessionID,
+		MessageID:    messageID,
 	}
 }
 

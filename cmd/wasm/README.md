@@ -263,8 +263,10 @@ cancels the previous). Safe to call before the call has started running.
 
 | Event | Fields |
 | --- | --- |
-| `delta` | `content?` or `reasoning?` — a streamed chunk. |
+| `delta` | `message_id, content?` or `message_id, reasoning?` — a streamed chunk; accumulate reasoning separately per message. |
+| `reasoning_reset` | `message_id` — discard that message's accumulated reasoning, preserving text, tools and other messages; subsequent reasoning starts fresh. |
 | `tool_call_delta` | `id, name, arguments` — a streamed chunk of a tool call's arguments. |
+| `tool_calls_retracted` | `ids` — tool calls announced by `tool_call_delta` that will never run (refusal or server fallback). |
 | `tool_call` | `id, name, args` — the call is about to run. |
 | `tool_confirmation` | `id, name, args` — the runtime waits for `confirm()`. |
 | `tool_output` | `id, name, output` — incremental output of a running call. |
@@ -277,6 +279,10 @@ cancels the previous). Safe to call before the call has started running.
 | `warning` | `message` |
 | `error` | `message` — the turn failed; the promise rejects with the same message. |
 | `finish` | `reason: "stop"` — the turn completed. |
+
+The demo applies reasoning resets to its live bubble by `message_id`, without
+removing text or tool cards. Run its actual HTML event-consumer regression with
+`node --test cmd/wasm/web/events_test.js` (also included in `task test-wasm-bridge`).
 
 ### Differences from the previous bespoke loop
 

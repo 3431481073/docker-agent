@@ -378,6 +378,16 @@ Docker Agent sends the `server-side-fallback-2026-07-01` beta header, which
 accepts both forms, through the beta Messages API. The response's `model`
 field reports which model actually served the request.
 
+For sticky routing without a handoff marker, Docker Agent uses a different
+`message_start.model` provisionally when it matches an explicit fallback target
+or a replayed handoff target. This preserves attribution on clean EOF before
+final usage. A completed usage event clears the candidate unless a
+`fallback_message` confirms fallback routing; an explicit handoff marker takes
+precedence over both. Ordinary responses keep the configured model ID, display
+name and cost override. A truncated alias that collides with a historical target
+can still be attributed to that target; explicit fallback aliases without a
+matching history marker have no early attribution.
+
 Rules checked at startup:
 
 - A list holds at most three models, each distinct and different from the
@@ -534,9 +544,15 @@ multiple thinking blocks, omitted thinking, redacted thinking and their signatur
 A hook or user edit invalidates raw replay so stale content cannot override it.
 When only the rest of the turn changed (for example a sanitized tool name or a
 redacted tool argument), its recorded thinking is still replayed in its original
-place, with the current text and tool calls substituted. When the thinking itself changed, the turn loses it,
-with a warning in the logs. If that turn belongs to the tool loop the next
-request continues, and thinking is on, the API needs its original signed
+place, with the current tool calls substituted. Unchanged text blocks retain their
+contents and positions, including around fallback markers. Edited text can replace
+a single original text block only when no thinking block follows it. New text can
+be inserted before the first tool call (or at the end without tools) only when no
+thinking block is at or after that position. Other text edits, including edits
+spanning multiple blocks, cannot preserve the recorded thinking safely. When
+thinking itself changed or text edits cannot be placed safely, the turn is sent
+without thinking, with a warning in the logs. If that turn belongs to the tool
+loop the next request continues, and thinking is on, the API needs its original signed
 thinking: Docker Agent refuses the request with an error instead, and a new user
 turn starts a fresh loop.
 
