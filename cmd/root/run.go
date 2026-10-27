@@ -944,30 +944,31 @@ func (f *runExecFlags) runtimeOpts(loadResult *teamloader.LoadResult, runConfig 
 	return append(opts, loadedOpts...)
 }
 
-// snapshotRuntimeOpts wires the snapshot builtin into a runtime.
+// builtinRuntimeOpts wires user-setting-controlled builtins into a runtime.
 // Returns the [runtime.Opt]s that hand the registry and the
 // [builtins.SnapshotController] auto-injector to the runtime, plus
 // the controller itself for the embedder to pass to the App via
-// [app.WithSnapshotController]. When snapshots aren't enabled,
-// returns no opts and a nil controller so callers don't have to
-// branch on f.snapshotsEnabled themselves.
+// [app.WithSnapshotController]. Keep-awake hooks are always installed and read
+// the user preference at each run. The snapshot controller is nil when disabled.
 //
 // A fresh registry is created here rather than reused across runtimes
 // so the spawner-created sub-runtimes get their own snapshot state
 // (each spawned session has independent /undo history).
-func (f *runExecFlags) snapshotRuntimeOpts() ([]runtime.Opt, builtins.SnapshotController, error) {
-	if !f.snapshotsEnabled {
-		return nil, nil, nil
-	}
+func (f *runExecFlags) builtinRuntimeOpts() ([]runtime.Opt, builtins.SnapshotController, error) {
 	reg := hooks.NewRegistry()
+	awake, err := builtins.RegisterKeepAwake(reg, func() bool { return userconfig.Get().GetKeepAwake() })
+	if err != nil {
+		return nil, nil, fmt.Errorf("register keep-awake builtin: %w", err)
+	}
+	opts := []runtime.Opt{runtime.WithHooksRegistry(reg), runtime.WithAutoInjector(awake)}
+	if !f.snapshotsEnabled {
+		return opts, nil, nil
+	}
 	ctrl, err := builtins.RegisterSnapshot(reg, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("register snapshot builtin: %w", err)
 	}
-	return []runtime.Opt{
-		runtime.WithHooksRegistry(reg),
-		runtime.WithAutoInjector(ctrl),
-	}, ctrl, nil
+	return append(opts, runtime.WithAutoInjector(ctrl)), ctrl, nil
 }
 
 func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadResult *teamloader.LoadResult, req runtime.CreateSessionRequest, sessStore session.Store) (runtime.Runtime, *session.Session, error) {
@@ -985,7 +986,7 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 	}
 	agentName := agt.Name()
 
-	rtOpts, ctrl, err := f.snapshotRuntimeOpts()
+	rtOpts, ctrl, err := f.builtinRuntimeOpts()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1371,7 +1372,7 @@ func (f *runExecFlags) createSessionSpawner(agentSource config.Source, sessStore
 			t.SetPermissions(permissions.Merge(t.Permissions(), ignoreRules))
 		}
 
-		rtOpts, ctrl, err := f.snapshotRuntimeOpts()
+		rtOpts, ctrl, err := f.builtinRuntimeOpts()
 		if err != nil {
 			return nil, nil, nil, err
 		}

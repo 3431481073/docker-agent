@@ -39,6 +39,18 @@ func TestSettingsDialogNormalizesValues(t *testing.T) {
 		"unknown info mode normalizes to compact")
 }
 
+func TestSettingsDialogKeepAwake(t *testing.T) {
+	t.Parallel()
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.tab = tabBehavior
+	d.selected[tabBehavior] = rowKeepAwake
+	assert.False(t, d.current.KeepAwake)
+	d.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	assert.True(t, d.current.KeepAwake)
+	d.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	assert.False(t, d.current.KeepAwake)
+}
+
 func TestSettingsDialogNavigation(t *testing.T) {
 	t.Parallel()
 

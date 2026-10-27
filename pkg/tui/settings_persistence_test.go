@@ -141,6 +141,7 @@ func TestSavePreferences_RoundTripAndPreservesExtra(t *testing.T) {
 		WarnOnCacheMiss:               true,
 		Lean:                          true,
 		TabTitleMaxLength:             42,
+		KeepAwake:                     true,
 		Sound:                         true,
 		SoundThreshold:                17,
 	}
@@ -162,6 +163,7 @@ func TestSavePreferences_RoundTripAndPreservesExtra(t *testing.T) {
 	assert.Equal(t, preferences.WarnOnCacheMiss, settings.CacheMissWarningsEnabled())
 	assert.Equal(t, preferences.Lean, settings.Lean)
 	assert.Equal(t, preferences.TabTitleMaxLength, settings.GetTabTitleMaxLength())
+	assert.Equal(t, preferences.KeepAwake, settings.GetKeepAwake())
 	assert.Equal(t, preferences.Sound, settings.GetSound())
 	assert.Equal(t, preferences.SoundThreshold, settings.GetSoundThreshold())
 	assert.Equal(t, "kept", settings.Extra["future_setting"])

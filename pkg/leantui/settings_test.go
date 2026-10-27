@@ -70,6 +70,23 @@ func TestSettingsSavePreservesOtherPreferences(t *testing.T) {
 	assert.Equal(t, cfg.Settings.Layout, s.Layout)
 }
 
+func TestSettingsKeepAwake(t *testing.T) {
+	setupLeanSettingsTest(t)
+	m := bareModel(80)
+	m.openSettings()
+	assert.False(t, m.settings.values[settingKeepAwake])
+	m.screen.Settings.Selected = settingKeepAwake
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyEnter})
+	assert.True(t, userconfig.Get().GetKeepAwake())
+	m.openSettings()
+	assert.True(t, m.settings.values[settingKeepAwake])
+	m.screen.Settings.Selected = settingKeepAwake
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyEnter})
+	assert.False(t, userconfig.Get().GetKeepAwake())
+}
+
 func TestSettingsYOLORequiresConfirmation(t *testing.T) {
 	setupLeanSettingsTest(t)
 	m := bareModel(80)

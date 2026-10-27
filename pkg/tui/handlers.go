@@ -938,6 +938,7 @@ func (m *appModel) handleOpenSettingsDialog() (tea.Model, tea.Cmd) {
 		WarnOnCacheMiss:               settings.CacheMissWarningsEnabled(),
 		Lean:                          settings.Lean,
 		TabTitleMaxLength:             settings.GetTabTitleMaxLength(),
+		KeepAwake:                     settings.GetKeepAwake(),
 		Sound:                         settings.GetSound(),
 		SoundThreshold:                settings.GetSoundThreshold(),
 		InterruptConfirmation:         messages.ParseInterruptMode(settings.GetInterruptConfirmation()),
@@ -1066,6 +1067,7 @@ func savePreferences(p messages.Preferences) error {
 		s.ShowBanner = boolPreference(p.ShowBanner, true)
 		s.YOLO = p.YOLO
 		s.Lean = p.Lean
+		s.KeepAwake = p.KeepAwake
 		s.Sound = p.Sound
 		s.InterruptConfirmation = string(p.InterruptConfirmation)
 		if p.SoundThreshold == userconfig.DefaultSoundThreshold {
@@ -1131,7 +1133,8 @@ func saveSettingsToUserConfig(layout messages.LayoutSettings, mode messages.Send
 		CacheStablePrompts:            settings.CacheStablePromptsEnabled(),
 		WarnOnCacheMiss:               settings.CacheMissWarningsEnabled(),
 		Lean:                          settings.Lean, TabTitleMaxLength: settings.GetTabTitleMaxLength(),
-		Sound: settings.GetSound(), SoundThreshold: settings.GetSoundThreshold(),
+		KeepAwake: settings.GetKeepAwake(),
+		Sound:     settings.GetSound(), SoundThreshold: settings.GetSoundThreshold(),
 		InterruptConfirmation: messages.ParseInterruptMode(settings.GetInterruptConfirmation()),
 	})
 }

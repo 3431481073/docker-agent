@@ -17,6 +17,7 @@ const (
 	settingBackgroundCompactionThreshold
 	settingWarnOnCacheMiss
 	settingLean
+	settingKeepAwake
 	settingSound
 	settingSoundThreshold
 	settingRenderImages
@@ -46,6 +47,7 @@ func (m *model) openSettings() {
 		settingBackgroundCompaction: s.BackgroundCompaction,
 		settingWarnOnCacheMiss:      s.CacheMissWarningsEnabled(),
 		settingLean:                 s.Lean,
+		settingKeepAwake:            s.GetKeepAwake(),
 		settingSound:                s.GetSound(),
 		settingRenderImages:         s.GetRenderImages(),
 		settingShowBanner:           !m.hideBanner,
@@ -71,6 +73,7 @@ func (m *model) refreshSettingsRows() {
 		"Background compaction threshold",
 		"Warn on cache miss",
 		"Lean UI by default (next launch)",
+		"Keep machine awake (next agent run)",
 		"Completion sound",
 		"Sound threshold",
 		"Render images (next launch if not detected)",
@@ -214,6 +217,8 @@ func saveLeanSettings(p *leanSettings) error {
 				s.WarnOnCacheMiss = enabledPreference(value)
 			case settingLean:
 				s.Lean = value
+			case settingKeepAwake:
+				s.KeepAwake = value
 			case settingSound:
 				s.Sound = value
 			case settingRenderImages:

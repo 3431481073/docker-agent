@@ -63,6 +63,7 @@ const (
 	rowYOLO
 	rowRestoreTabs
 	rowSnapshot
+	rowKeepAwake
 	rowCacheStablePrompts
 	rowBackgroundCompaction
 	rowBackgroundCompactionThreshold
@@ -341,6 +342,8 @@ func (d *settingsDialog) changeValue(delta int) tea.Cmd {
 			}
 		case rowRestoreTabs:
 			d.current.RestoreTabs = !d.current.RestoreTabs
+		case rowKeepAwake:
+			d.current.KeepAwake = !d.current.KeepAwake
 		case rowSnapshot:
 			d.current.Snapshot = !d.current.Snapshot
 		case rowBackgroundCompaction:
@@ -574,6 +577,7 @@ func (d *settingsDialog) renderBehaviorTab(content *settingsContent, width int) 
 	content.addGroup("Session defaults", width)
 	toggle(rowRestoreTabs, "Restore tabs on launch", d.current.RestoreTabs)
 	toggle(rowSnapshot, "Automatic snapshots", d.current.Snapshot)
+	toggle(rowKeepAwake, "Keep machine awake (next agent run)", d.current.KeepAwake)
 	toggle(rowCacheStablePrompts, "Cache-stable dynamic prompts", d.current.CacheStablePrompts)
 	toggle(rowBackgroundCompaction, "Background compaction", d.current.BackgroundCompaction)
 	add(rowBackgroundCompactionThreshold, d.renderStepperRow(rowBackgroundCompactionThreshold, "Background compaction threshold", d.current.BackgroundCompactionThreshold, "%", width, false))
