@@ -211,6 +211,7 @@ remote MCP endpoints.
 | [`baseten.yaml`](baseten.yaml) | Baseten cloud provider. |
 | [`daoxe.yaml`](daoxe.yaml) | DaoXE multi-model gateway provider. |
 | [`opper.yaml`](opper.yaml) | Opper multi-model gateway provider. |
+| [`orcarouter.yaml`](orcarouter.yaml) | OrcaRouter multi-model gateway provider. |
 | [`ovhcloud.yaml`](ovhcloud.yaml) | OVHcloud AI Endpoints provider. |
 | [`runcrate.yaml`](runcrate.yaml) | Runcrate open-model host (`runcrate`). |
 | [`groq.yaml`](groq.yaml) | Groq fast-inference provider. |
