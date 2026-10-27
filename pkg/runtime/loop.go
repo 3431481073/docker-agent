@@ -317,9 +317,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 	}
 
 	ctx = tools.WithHandlerScope(ctx, tools.HandlerScope{
-		Elicitation:       r.elicitationHandler,
-		Sampling:          r.samplingHandler,
-		SamplingWithTools: r.samplingWithToolsHandler,
+		Elicitation: r.elicitationHandler,
 		OAuthSuccess: func() {
 			sink.Emit(Authorization(tools.ElicitationActionAccept, r.resolveSessionAgent(sess).Name()))
 		},
@@ -1371,8 +1369,6 @@ func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent) {
 	for _, toolset := range a.ToolSets() {
 		tools.ConfigureHandlers(toolset,
 			tools.ScopedElicitationHandler,
-			tools.SamplingScopeHandler,
-			tools.SamplingWithToolsScopeHandler,
 			nil,
 			r.managedOAuth,
 			r.unmanagedOAuthRedirectURI,
@@ -1567,8 +1563,6 @@ func (r *LocalRuntime) skillSubSessionTools(ctx context.Context, sess *session.S
 	for i, ts := range sess.ExtraToolSets {
 		tools.ConfigureHandlers(ts,
 			tools.ScopedElicitationHandler,
-			tools.SamplingScopeHandler,
-			tools.SamplingWithToolsScopeHandler,
 			nil,
 			r.managedOAuth,
 			r.unmanagedOAuthRedirectURI,

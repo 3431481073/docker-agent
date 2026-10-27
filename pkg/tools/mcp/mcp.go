@@ -143,8 +143,6 @@ type mcpClient interface {
 	ListPrompts(ctx context.Context, request *mcp.ListPromptsParams) iter.Seq2[*mcp.Prompt, error]
 	GetPrompt(ctx context.Context, request *mcp.GetPromptParams) (*mcp.GetPromptResult, error)
 	SetElicitationHandler(handler tools.ElicitationHandler)
-	SetSamplingHandler(handler tools.SamplingHandler)
-	SetSamplingWithToolsHandler(handler tools.SamplingWithToolsHandler)
 	SetOAuthSuccessHandler(handler func())
 	SetManagedOAuth(managed bool)
 	SetUnmanagedOAuthRedirectURI(uri string)
@@ -215,12 +213,10 @@ var (
 
 // Verify that Toolset implements optional capability interfaces
 var (
-	_ tools.Instructable        = (*Toolset)(nil)
-	_ tools.Elicitable          = (*Toolset)(nil)
-	_ tools.Sampleable          = (*Toolset)(nil)
-	_ tools.SampleableWithTools = (*Toolset)(nil)
-	_ tools.OAuthCapable        = (*Toolset)(nil)
-	_ tools.ChangeSubscriber    = (*Toolset)(nil)
+	_ tools.Instructable     = (*Toolset)(nil)
+	_ tools.Elicitable       = (*Toolset)(nil)
+	_ tools.OAuthCapable     = (*Toolset)(nil)
+	_ tools.ChangeSubscriber = (*Toolset)(nil)
 )
 
 // NewToolsetCommand creates a new MCP toolset from a command.
@@ -631,9 +627,6 @@ func (c *clientConnector) Connect(ctx context.Context) (lifecycle.Session, error
 					Form: &mcp.FormElicitationCapabilities{},
 					URL:  &mcp.URLElicitationCapabilities{},
 				},
-				Sampling: &mcp.SamplingCapabilities{
-					Tools: &mcp.SamplingToolsCapabilities{},
-				},
 			},
 		},
 	}
@@ -986,14 +979,6 @@ func embeddedResourceName(uri, mimeType string) string {
 
 func (ts *Toolset) SetElicitationHandler(handler tools.ElicitationHandler) {
 	ts.mcpClient.SetElicitationHandler(handler)
-}
-
-func (ts *Toolset) SetSamplingHandler(handler tools.SamplingHandler) {
-	ts.mcpClient.SetSamplingHandler(handler)
-}
-
-func (ts *Toolset) SetSamplingWithToolsHandler(handler tools.SamplingWithToolsHandler) {
-	ts.mcpClient.SetSamplingWithToolsHandler(handler)
 }
 
 func (ts *Toolset) SetOAuthSuccessHandler(handler func()) {

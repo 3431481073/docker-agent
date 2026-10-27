@@ -190,6 +190,8 @@ func createMCPServerForTeam(ctx context.Context, t *team.Team, agentFilename, ag
 		Version: version.Version,
 	}, &mcp.ServerOptions{
 		KeepAlive: runConfig.MCPKeepAlive,
+		// Override the SDK default that advertises deprecated MCP logging.
+		Capabilities: &mcp.ServerCapabilities{},
 	})
 
 	agentNames := t.AgentNames()
