@@ -17,7 +17,8 @@
 //
 //	GOOS=js GOARCH=wasm go build -o web/docker-agent.wasm ./cmd/wasm
 //
-// and loaded by web/index.html via wasm_exec.js.
+// and loaded by web/index.html via wasm_exec.js. RAG is opt-in with
+// -tags docker_agent_wasm_rag.
 //
 // What this entry point does NOT do, by construction: run processes, read
 // or write files, listen on sockets, persist sessions. Configs that need
@@ -87,7 +88,6 @@ import (
 
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config"
-	"github.com/docker/docker-agent/pkg/rag"
 )
 
 // compatState tracks the chat() call in flight so abort() can cancel it.
@@ -198,7 +198,7 @@ const (
 // jsDocuments copies a {path: content} object into the session's documents.
 // Values must be strings: there is no fallback that could quietly index a
 // stringified object.
-func jsDocuments(v js.Value) (rag.Documents, error) {
+func jsDocuments(v js.Value) (map[string][]byte, error) {
 	switch v.Type() {
 	case js.TypeUndefined, js.TypeNull:
 		return nil, nil
@@ -210,7 +210,7 @@ func jsDocuments(v js.Value) (rag.Documents, error) {
 	if keys.Length() > maxDocuments {
 		return nil, fmt.Errorf("%d documents exceed the limit of %d", keys.Length(), maxDocuments)
 	}
-	documents := make(rag.Documents, keys.Length())
+	documents := make(map[string][]byte, keys.Length())
 	total := 0
 	for i := range keys.Length() {
 		path := keys.Index(i).String()
