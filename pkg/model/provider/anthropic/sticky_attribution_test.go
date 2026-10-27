@@ -36,7 +36,7 @@ func TestStickyServingModel(t *testing.T) {
 		{name: "default is not explicit evidence", model: primary, opts: map[string]any{"fallbacks": "default"}, reply: anthropictest.StickyTruncatedReply("m", target, "partial")},
 		{name: "unlisted target", model: primary, opts: map[string]any{"fallbacks": []string{target}}, reply: anthropictest.StickyTruncatedReply("m", later, "partial")},
 		{name: "usage overrides provisional", model: primary, opts: map[string]any{"fallbacks": []string{target}}, reply: strings.Replace(anthropictest.StickyReply("m", later, "answer"), `"model":"`+later+`"`, `"model":"`+target+`"`, 1), early: target, final: later},
-		{name: "marker overrides provisional and usage", model: primary, opts: map[string]any{"fallbacks": []string{target}}, reply: strings.ReplaceAll(strings.Replace(anthropictest.FallbackBeforeOutputReply("m", target, later, "answer"), `"model":"`+later+`"`, `"model":"`+target+`"`, 1), `"model":"`+later+`","output_tokens":7,"type":"fallback_message"`, `"model":"`+target+`","output_tokens":7,"type":"fallback_message"`), early: target, final: later},
+		{name: "marker overrides provisional and usage", model: primary, opts: map[string]any{"fallbacks": []string{target}}, reply: strings.ReplaceAll(strings.Replace(anthropictest.FallbackBeforeOutputReply("m", target, later, "cyber", "answer"), `"model":"`+later+`"`, `"model":"`+target+`"`, 1), `"model":"`+later+`","output_tokens":7,"type":"fallback_message"`, `"model":"`+target+`","output_tokens":7,"type":"fallback_message"`), early: target, final: later},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

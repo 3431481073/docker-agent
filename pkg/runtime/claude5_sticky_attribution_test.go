@@ -35,7 +35,7 @@ func TestClaude5EarlyStickyAttribution(t *testing.T) {
 			server := anthropictest.NewServer(t, replies...)
 			dbPath := filepath.Join(t.TempDir(), "sessions.db")
 			store := openSessionStore(t, dbPath)
-			rt := anthropicRuntime(t, server, tc.model, tc.opts, store)
+			rt := anthropicRuntime(t, server, tc.model, tc.opts, store, mockModelStoreWithCostAndLimit{limit: 40_000})
 			sess := session.New(session.WithUserMessage("q"), session.WithTitle("Sticky attribution"))
 			if tc.history {
 				requireNoErrorEvents(t, drainRunStream(t, rt, sess))
