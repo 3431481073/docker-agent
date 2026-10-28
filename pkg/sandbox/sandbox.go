@@ -3,6 +3,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -66,22 +67,13 @@ func (b *Backend) ForWorkspace(ctx context.Context, wd string) *Existing {
 // allForWorkspace returns every existing sandbox whose primary
 // workspace matches wd, in backend-listing order.
 func (b *Backend) allForWorkspace(ctx context.Context, wd string) []Existing {
-	cmd := exec.CommandContext(ctx, b.program, b.args("ls", "--json")...)
-	b.applyEnv(cmd)
-	out, err := cmd.Output()
+	all, err := b.list(ctx)
 	if err != nil {
 		return nil
 	}
 
-	var raw struct {
-		Sandboxes []Existing `json:"sandboxes"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil
-	}
-
 	var matches []Existing
-	for _, entry := range raw.Sandboxes {
+	for _, entry := range all {
 		if len(entry.Workspaces) > 0 && entry.Workspaces[0] == wd {
 			matches = append(matches, entry)
 		}
@@ -164,7 +156,13 @@ func (b *Backend) list(ctx context.Context) ([]Existing, error) {
 	var raw struct {
 		Sandboxes []Existing `json:"sandboxes"`
 	}
-	if err := json.Unmarshal(out, &raw); err != nil {
+	// Recent sbx releases return an array; older CLIs wrap it in an object.
+	if bytes.HasPrefix(bytes.TrimSpace(out), []byte("[")) {
+		err = json.Unmarshal(out, &raw.Sandboxes)
+	} else {
+		err = json.Unmarshal(out, &raw)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("decoding sandbox list: %w", err)
 	}
 	return raw.Sandboxes, nil
