@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.154.0] - 2026-10-28
+
+This release adds support for the Lunaroute AI provider and fixes compatibility with recent sbx sandbox releases.
+
+## What's New
+- Adds Lunaroute as an OpenAI-compatible provider, including credential-based selection and model discovery
+
+## Bug Fixes
+- Fixes compatibility with recent sbx sandbox releases, accepting both array and legacy envelope listings from `sbx ls --json` and updating the cloud flag for sbx 0.48–0.50.0
+### Pull Requests
+
+- [#4750](https://github.com/docker/docker-agent/pull/4750) - feat: add Lunaroute provider support
+- [#4752](https://github.com/docker/docker-agent/pull/4752) - docs: update CHANGELOG.md for v1.153.0
+- [#4753](https://github.com/docker/docker-agent/pull/4753) - fix: support recent sbx sandbox releases
+
+
 ## [v1.153.0] - 2026-10-28
 
 This release adds several new provider aliases, opt-in background session compaction, sleep inhibition during agent runs, and full Claude API server-side fallback support, alongside numerous bug fixes and internal refactoring.
@@ -7197,3 +7213,5 @@ This release improves the terminal user interface with better error handling and
 [v1.152.0]: https://github.com/docker/docker-agent/releases/tag/v1.152.0
 
 [v1.153.0]: https://github.com/docker/docker-agent/releases/tag/v1.153.0
+
+[v1.154.0]: https://github.com/docker/docker-agent/releases/tag/v1.154.0
