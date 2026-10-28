@@ -3,6 +3,113 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.153.0] - 2026-10-28
+
+This release adds several new provider aliases, opt-in background session compaction, sleep inhibition during agent runs, and full Claude API server-side fallback support, alongside numerous bug fixes and internal refactoring.
+
+## What's New
+
+- Adds **Opper** as a built-in OpenAI-compatible provider alias (`opper`, base URL `https://api.opper.ai/v3/compat`)
+- Adds **Runcrate** as a built-in OpenAI-compatible provider alias (`runcrate`, base URL `https://api.runcrate.ai/v1`)
+- Adds **OrcaRouter** as a built-in OpenAI-compatible provider alias (`orcarouter`, base URL `https://api.orcarouter.ai/v1`)
+- Adds opt-in background session compaction: context compaction can now run in the background while the agent continues working, configurable via `/settings` or `settings.background_compaction` in user config
+- Adds opt-in **Keep machine awake** setting (`settings.keep_awake`) that prevents sleep during agent runs on macOS, Linux, and Windows
+- Adds support for `DOCKER_AGENT_ENV_<NAME>`-prefixed secret variables, allowing provider API keys to be scoped to docker-agent without affecting other tools that share the same variable names
+- Adds Claude API server-side fallback support: docker-agent now sends `fallbacks` with the July beta, reports fallback markers and the serving model, bills each fallback attempt at its own model's rates, and supports Claude 5.x fallback chains
+- Adds Docker Hub authentication via the Docker secrets engine, preferring it over the legacy Desktop backend API endpoint
+- Adds `feat(auth)`: shows why the secrets engine supplied no token in debug auth output
+- Adds `feat(harness)`: session titles and `/effort` / Shift+Tab effort switching for Claude Code harness agents
+- Makes RAG opt-in in the WASM build via the `docker_agent_wasm_rag` build tag; the default WASM build no longer includes RAG dependencies
+
+## Improvements
+
+- Replays reasoning content in OpenAI-compatible streams, with opt-out, so reasoning models no longer re-derive already-produced reasoning after tool calls
+- Fixes native compaction replay to apply only where it is enabled, and prices native compaction iterations separately per Claude 5.x lifecycle
+- Resolves the `/speak` OpenAI key through the full secret chain (including `op://` references, env files, and Docker Desktop) instead of reading only from the environment
+
+## Bug Fixes
+
+- Fixes doubled/duplicated lines in the lean TUI when streamed markdown content temporarily shrinks during rendering
+- Fixes crash when anchoring deferred tools at error tool results, which previously caused sessions to become unrecoverable after a handoff with a failing tool call in the same batch
+- Fixes secrets engine auth fallback behavior so a slow or stalled engine no longer stalls debug auth or loses legacy account info
+- Fixes the lean TUI shutdown race between canceling input and restoring the terminal
+- Fixes RAG embedding builders to be joined before returning on cancellation, and snapshots BM25 statistics safely during queries
+- Fixes several gaps in server fallback handling: settling fallback turns in the adapter and WASM UI, keeping fallback markers on every beta request, and correctly attributing sticky-routed turns
+- Fixes tool lifecycle ownership gaps: preserves nested lifecycle restart ownership, propagates nested worker completion, and keeps nested lifecycle probes nonblocking
+- Fixes the secrets engine to correctly take the account and expiry from the engine session
+- Fixes an empty `DOCKER_AGENT_ENV_` override so it no longer hides overrides in later sources
+- Fixes injected transcribers in the TUI and allows finish to interrupt the key lookup
+- Fixes Baseten model configuration to use catalogued models after the models.dev snapshot refresh
+
+## Technical Changes
+
+- Removes deprecated MCP sampling, roots, and logging capabilities per MCP SEP-2577
+- Removes unused `PeerDependent` toolset startup; all toolsets now start concurrently
+- Consolidates tool-list change notifications onto subscriptions, removing `tools.ChangeNotifier` and `SetToolsChangedHandler`
+- Refactors the runtime into focused sub-packages: MCP sampling adapter, model discovery/picker catalog, generated artifact service, agent inspection, per-run observer lifetimes, model discovery cache, model pricing policy, and remote execution
+- Refactors the OAuth callback server into a single blocking `RequestAuthorizationCode` call scoped to one authorization
+- Refactors the scheduler worker lifetime into a single blocking `Run(ctx)` call
+- Refactors the lean TUI terminal resize handling into the event loop, removing the dedicated goroutine and channel
+- Refactors file watching in RAG to be context-owned
+- Refactors ACP terminal cleanup to be session-owned
+- Removes the client-wide `lastSelectedID` from the rule-based provider client
+- Adds a `SplitGoroutineLifetime` lint cop (disabled by default) for detecting split-lifecycle goroutine ownership patterns
+- Expresses nullable arrays and objects as `anyOf` in strict OpenAI tool schemas to fix schema validation rejections from the OpenAI Responses API
+- Refreshes the embedded models.dev catalog snapshot (two updates: +338/−454 and +34/−28 model entries)
+### Pull Requests
+
+- [#4007](https://github.com/docker/docker-agent/pull/4007) - feat: add OrcaRouter as a built-in OpenAI-compatible provider
+- [#4485](https://github.com/docker/docker-agent/pull/4485) - fix(oaistream): replay reasoning content with opt-out
+- [#4535](https://github.com/docker/docker-agent/pull/4535) - feat(desktop): prefer the secrets engine for Docker Hub authentication
+- [#4677](https://github.com/docker/docker-agent/pull/4677) - feat: add Opper as an OpenAI-compatible provider alias
+- [#4680](https://github.com/docker/docker-agent/pull/4680) - chore(deps): bump certifi from 2025.4.26 to 2026.10.19 in /examples/dhi/dhi_mcp_server in the pip group across 1 directory
+- [#4681](https://github.com/docker/docker-agent/pull/4681) - docs: update CHANGELOG.md for v1.152.0
+- [#4686](https://github.com/docker/docker-agent/pull/4686) - test(claude): pin Haiku 5.5 price tier, reload pricing and shared-client isolation
+- [#4688](https://github.com/docker/docker-agent/pull/4688) - fix: Claude 5.x compaction lifecycle (replay gate, per-iteration cost) with end-to-end tests
+- [#4689](https://github.com/docker/docker-agent/pull/4689) - test: pin Claude 5.x requests after a model or transport switch and reload
+- [#4690](https://github.com/docker/docker-agent/pull/4690) - feat(anthropic): server-side fallback request side (July beta, default, Claude API only)
+- [#4691](https://github.com/docker/docker-agent/pull/4691) - feat: Claude API server fallback stream and continuation
+- [#4692](https://github.com/docker/docker-agent/pull/4692) - refactor(evaluation): scope progress rendering to its run
+- [#4693](https://github.com/docker/docker-agent/pull/4693) - test: avoid command discovery in shell error test
+- [#4694](https://github.com/docker/docker-agent/pull/4694) - refactor(oauth): scope callback serving to authorization
+- [#4695](https://github.com/docker/docker-agent/pull/4695) - fix: don't anchor deferred tools at error tool results
+- [#4696](https://github.com/docker/docker-agent/pull/4696) - refactor(leantui): poll terminal size in the event loop
+- [#4697](https://github.com/docker/docker-agent/pull/4697) - refactor(rag): make file watching context-owned
+- [#4698](https://github.com/docker/docker-agent/pull/4698) - feat(lint): add split goroutine lifetime cop (disabled by default)
+- [#4699](https://github.com/docker/docker-agent/pull/4699) - refactor(acp): make terminal cleanup session-owned
+- [#4700](https://github.com/docker/docker-agent/pull/4700) - feat: bill Claude API server fallback per attempt and allow Claude 5.x chains
+- [#4701](https://github.com/docker/docker-agent/pull/4701) - docs(secrets): credential helper only supplies DOCKER_TOKEN
+- [#4705](https://github.com/docker/docker-agent/pull/4705) - refactor(scheduler): scope worker lifetime to blocking Run(ctx)
+- [#4706](https://github.com/docker/docker-agent/pull/4706) - test(windows): avoid recovered nil-expander hardware faults
+- [#4707](https://github.com/docker/docker-agent/pull/4707) - fix(desktop): preserve secrets-engine auth fallback behavior
+- [#4708](https://github.com/docker/docker-agent/pull/4708) - feat: read DOCKER_AGENT_ENV_-prefixed secret variables
+- [#4709](https://github.com/docker/docker-agent/pull/4709) - fix(tui): resolve the /speak OpenAI key through the secret chain
+- [#4710](https://github.com/docker/docker-agent/pull/4710) - refactor(rulebased): remove the client-wide lastSelectedID
+- [#4717](https://github.com/docker/docker-agent/pull/4717) - feat: add Runcrate as an OpenAI-compatible provider alias
+- [#4720](https://github.com/docker/docker-agent/pull/4720) - chore: refresh models.dev snapshot (+338 -454 ~2857)
+- [#4721](https://github.com/docker/docker-agent/pull/4721) - fix(leantui): prevent doubled lines during streaming
+- [#4723](https://github.com/docker/docker-agent/pull/4723) - feat: add opt-in background session compaction
+- [#4724](https://github.com/docker/docker-agent/pull/4724) - refactor(runtime): extract MCP sampling adapter
+- [#4725](https://github.com/docker/docker-agent/pull/4725) - refactor(runtime)!: extract model discovery and picker catalog
+- [#4726](https://github.com/docker/docker-agent/pull/4726) - refactor(runtime)!: extract generated artifact service
+- [#4727](https://github.com/docker/docker-agent/pull/4727) - refactor(runtime): consolidate steering submission handling
+- [#4728](https://github.com/docker/docker-agent/pull/4728) - refactor(runtime)!: separate read-only agent inspection
+- [#4729](https://github.com/docker/docker-agent/pull/4729) - refactor(runtime): make per-run observer lifetimes explicit
+- [#4730](https://github.com/docker/docker-agent/pull/4730) - refactor(runtime): share model discovery cache mechanics
+- [#4731](https://github.com/docker/docker-agent/pull/4731) - refactor(runtime): extract pure model pricing policy
+- [#4732](https://github.com/docker/docker-agent/pull/4732) - refactor(runtime)!: extract remote execution without moving shared types
+- [#4735](https://github.com/docker/docker-agent/pull/4735) - feat(harness): session titles and /effort for Claude Code harness agents
+- [#4736](https://github.com/docker/docker-agent/pull/4736) - refactor: consolidate tool-list change notifications on subscriptions
+- [#4737](https://github.com/docker/docker-agent/pull/4737) - refactor: remove deprecated MCP roots, sampling, and logging support
+- [#4738](https://github.com/docker/docker-agent/pull/4738) - refactor: remove unused peer-dependent toolset startup
+- [#4739](https://github.com/docker/docker-agent/pull/4739) - chore: refresh models.dev snapshot (+34 -28 ~82)
+- [#4740](https://github.com/docker/docker-agent/pull/4740) - docs: remove per-tab settings descriptions from TUI page
+- [#4742](https://github.com/docker/docker-agent/pull/4742) - feat: add opt-in sleep inhibition during agent runs
+- [#4745](https://github.com/docker/docker-agent/pull/4745) - openai: express nullable arrays and objects as anyOf in strict tool schemas
+- [#4746](https://github.com/docker/docker-agent/pull/4746) - chore: bump 16 Go dependencies
+- [#4748](https://github.com/docker/docker-agent/pull/4748) - feat(wasm): make RAG opt-in
+
+
 ## [v1.152.0] - 2026-10-21
 
 This release delivers significant Claude 5.x support improvements, RAG sharing optimizations, security hardening for the REST API, and history load performance gains.
@@ -7088,3 +7195,5 @@ This release improves the terminal user interface with better error handling and
 [v1.151.0]: https://github.com/docker/docker-agent/releases/tag/v1.151.0
 
 [v1.152.0]: https://github.com/docker/docker-agent/releases/tag/v1.152.0
+
+[v1.153.0]: https://github.com/docker/docker-agent/releases/tag/v1.153.0
