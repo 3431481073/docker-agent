@@ -10,7 +10,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
-	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -472,7 +472,7 @@ func TestBuildCatalogChoices_CanonicalProviders(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/custom=%t", legacy, custom), func(t *testing.T) {
 				t.Parallel()
 				canonical := modelsdev.CanonicalProviderID(legacy)
-				alias, ok := provider.LookupAlias(canonical)
+				alias, ok := catalog.Find(canonical)
 				require.True(t, ok)
 				r := &Catalog{
 					Store: &mockCatalogStore{db: &modelsdev.Database{Providers: map[string]modelsdev.Provider{
@@ -482,7 +482,7 @@ func TestBuildCatalogChoices_CanonicalProviders(t *testing.T) {
 						}},
 					}}},
 					Config: &Config{
-						EnvProvider: environment.NewMapEnvProvider(map[string]string{alias.TokenEnvVar: "test-key"}),
+						EnvProvider: environment.NewMapEnvProvider(map[string]string{alias.TokenEnvVars[0]: "test-key"}),
 						Models:      map[string]latest.ModelConfig{"mine": {Provider: legacy, Model: "configured"}},
 					},
 				}

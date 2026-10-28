@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelinfo"
@@ -143,6 +144,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			httpClient.Transport = &bearerTokenTransport{source: tokenSource, base: httpClient.Transport}
 		}
 
+		baseURL := cfg.BaseURL
+		if backend == genai.BackendVertexAI && catalog.IsDefaultEndpoint(cfg.Provider, baseURL) {
+			baseURL = ""
+		}
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{
 			APIKey:     apiKey,
 			Project:    project,
@@ -150,7 +155,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			Backend:    backend,
 			HTTPClient: httpClient,
 			HTTPOptions: genai.HTTPOptions{
-				BaseURL: cfg.BaseURL,
+				BaseURL: baseURL,
 			},
 		})
 		if err != nil {
@@ -227,11 +232,12 @@ func (t *bearerTokenTransport) RoundTrip(req *http.Request) (*http.Response, err
 // token_key when set, otherwise GOOGLE_API_KEY or GEMINI_API_KEY.
 func directAPIKey(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider) (string, error) {
 	if cfg.TokenKey != "" {
-		apiKey, _ := env.Get(ctx, cfg.TokenKey)
-		if apiKey == "" {
-			return "", fmt.Errorf("%s environment variable is required", cfg.TokenKey)
+		for _, key := range catalog.TokenKeys(cfg.Provider, cfg.TokenKey) {
+			if apiKey, _ := env.Get(ctx, key); apiKey != "" {
+				return apiKey, nil
+			}
 		}
-		return apiKey, nil
+		return "", fmt.Errorf("%s environment variable is required", strings.Join(catalog.TokenKeys(cfg.Provider, cfg.TokenKey), " or "))
 	}
 	var apiKey string
 	if value, exist := env.Get(ctx, "GEMINI_API_KEY"); exist {

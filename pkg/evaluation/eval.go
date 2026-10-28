@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,8 +26,6 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/config/sources"
-	"github.com/docker/docker-agent/pkg/environment"
-	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/session"
 )
 
@@ -455,35 +452,7 @@ func (r *Runner) runDockerAgentInContainer(ctx context.Context, imageID string, 
 		env = append(env, name+"="+value)
 	}
 
-	if r.runConfig.ModelsGateway != "" {
-		addEnv("DOCKER_AGENT_MODELS_GATEWAY", r.runConfig.ModelsGateway)
-
-		if token, ok := r.runConfig.EnvProvider().Get(ctx, environment.DockerDesktopTokenEnv); ok && token != "" {
-			addEnv(environment.DockerDesktopTokenEnv, token)
-		}
-	} else {
-		for _, name := range config.ProviderAPIKeyEnvVars() {
-			if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
-				addEnv(name, val)
-			}
-		}
-	}
-
-	if r.agentConfig != nil {
-		cfg := *r.agentConfig
-		cfg.Agents = slices.Clone(cfg.Agents)
-		cfg.Providers = maps.Clone(cfg.Providers)
-		config.MergeGlobalProviders(&cfg, r.runConfig.Providers)
-		config.MergeAgentHooks(&cfg, config.MergeHooks(r.runConfig.GlobalHooks, r.runConfig.CLIHooks()))
-		evaluatorOpts := append([]options.Opt{options.WithGateway(r.runConfig.ModelsGateway)}, r.runConfig.EvaluatorOptions...)
-		for _, name := range config.RequiredEvaluatorEnvVars(&cfg, evaluatorOpts...) {
-			if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
-				addEnv(name, val)
-			}
-		}
-	}
-
-	// Pass additional environment variables specified via -e flag
+	// Only forward environment variables explicitly requested via -e.
 	// Format: KEY or KEY=VALUE
 	for _, entry := range r.EnvVars {
 		if key, val, hasValue := strings.Cut(entry, "="); hasValue && key != "" {
@@ -528,7 +497,7 @@ func (r *Runner) runDockerAgentInContainer(ctx context.Context, imageID string, 
 
 	containerRuntime := r.containerRuntimeOrDefault()
 	cmd := exec.CommandContext(ctx, containerRuntime, args...)
-	cmd.Env = append(env, os.Environ()...)
+	cmd.Env = append(os.Environ(), env...)
 	// On cancellation send SIGINT instead of the default SIGKILL: the
 	// Docker-compatible CLI proxies SIGINT to the container (SIGKILL is never
 	// proxied and would leave the container running daemon-side). The

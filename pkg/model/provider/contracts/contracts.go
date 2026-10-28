@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelinfo"
@@ -103,7 +104,7 @@ func (c *Config) ImageOutputEnabled(ctx context.Context) bool {
 // the SDK at a local server. An explicit api_type of openai_chatcompletions
 // routes off the Responses API, which alone serves tool_search.
 func (c *Config) NativeToolSearchEnabled() bool {
-	if c.ModelConfig.BaseURL != "" || c.ModelConfig.ProviderOpts["api_type"] == "openai_chatcompletions" {
+	if !catalog.IsDefaultEndpoint(c.ModelConfig.Provider, c.ModelConfig.BaseURL) || c.ModelConfig.ProviderOpts["api_type"] == "openai_chatcompletions" {
 		return false
 	}
 	enabled, _ := providerutil.GetProviderOptBool(c.ModelConfig.ProviderOpts, "native_tool_search")

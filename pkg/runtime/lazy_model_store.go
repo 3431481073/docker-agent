@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -31,7 +31,7 @@ type lazyModelStore struct {
 
 func (l *lazyModelStore) load() (*modelsdev.Store, error) {
 	l.once.Do(func() {
-		l.st, l.err = modelsdev.NewStore(modelsdev.WithKnownProvider(provider.IsKnownProvider))
+		l.st, l.err = modelsdev.NewStore(modelsdev.WithKnownProvider(catalog.IsKnownProvider))
 	})
 	return l.st, l.err
 }

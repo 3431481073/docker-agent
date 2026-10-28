@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 )
 
 // TestChatCompletions_MergesConsecutiveSystemMessages is a regression test for
@@ -35,64 +36,22 @@ func TestChatCompletions_MergesConsecutiveSystemMessages(t *testing.T) {
 	})
 }
 
-func TestOrcaRouter_MergesConsecutiveSystemMessages(t *testing.T) {
+func TestAliases_MergeConsecutiveSystemMessages(t *testing.T) {
 	t.Parallel()
 
-	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
-		Provider: "orcarouter",
-		Model:    "orcarouter/auto",
-		TokenKey: "MY_TOKEN",
-	})
-}
-
-func TestDaoxe_MergesConsecutiveSystemMessages(t *testing.T) {
-	t.Parallel()
-
-	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
-		Provider: "daoxe",
-		Model:    "gpt-4o",
-		TokenKey: "MY_TOKEN",
-	})
-}
-
-func TestOpper_MergesConsecutiveSystemMessages(t *testing.T) {
-	t.Parallel()
-
-	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
-		Provider: "opper",
-		Model:    "claude-sonnet-4-6",
-		TokenKey: "MY_TOKEN",
-	})
-}
-
-func TestRuncrate_MergesConsecutiveSystemMessages(t *testing.T) {
-	t.Parallel()
-
-	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
-		Provider: "runcrate",
-		Model:    "deepseek-ai/DeepSeek-V4.1-Flash",
-		TokenKey: "MY_TOKEN",
-	})
-}
-
-func TestBaseten_MergesConsecutiveSystemMessages(t *testing.T) {
-	t.Parallel()
-
-	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
-		Provider: "baseten",
-		Model:    "zai-org/GLM-5.2",
-		TokenKey: "MY_TOKEN",
-	})
-}
-
-func TestOVHcloud_MergesConsecutiveSystemMessages(t *testing.T) {
-	t.Parallel()
-
-	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
-		Provider: "ovhcloud",
-		Model:    "Qwen3.5-397B-A17B",
-		TokenKey: "MY_TOKEN",
-	})
+	for name, alias := range catalog.Providers {
+		if !alias.MergeConsecutiveMessages {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assertMergesConsecutiveMessages(t, &latest.ModelConfig{
+				Provider: name,
+				Model:    "test-model",
+				TokenKey: "MY_TOKEN",
+			})
+		})
+	}
 }
 
 // TestOpenAIWithBaseURL_MergesConsecutiveSystemMessages is a regression test for

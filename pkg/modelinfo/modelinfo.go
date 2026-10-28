@@ -39,6 +39,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -512,16 +513,6 @@ func HasOpenAIQualifier(modelID string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), openAIQualifierPrefix)
 }
 
-// openAIVendorProviders are the provider names whose models are genuinely
-// OpenAI's own, as opposed to a third-party vendor that merely speaks the
-// OpenAI-compatible wire protocol through a built-in alias. See
-// [IsOpenAIVendor].
-var openAIVendorProviders = map[string]bool{
-	"openai":  true,
-	"chatgpt": true,
-	"azure":   true,
-}
-
 // IsOpenAIVendor reports whether a (provider, modelID) pair genuinely names an
 // OpenAI vendor endpoint, as opposed to a third-party provider that merely
 // speaks the OpenAI-compatible wire protocol (xai, mistral, and other
@@ -545,7 +536,8 @@ var openAIVendorProviders = map[string]bool{
 // alias registry — that registry lives above modelinfo in the import graph,
 // so it cannot be folded in here.
 func IsOpenAIVendor(provider, modelID string) bool {
-	if openAIVendorProviders[strings.ToLower(strings.TrimSpace(provider))] {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if catalog.Lookup(provider).OpenAIVendor {
 		return true
 	}
 	return HasOpenAIQualifier(modelID)

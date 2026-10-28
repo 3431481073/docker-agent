@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelinfo"
@@ -96,8 +98,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	// Create Bedrock Runtime client with appropriate auth
 	var clientOpts []func(*bedrockruntime.Options)
 
-	// Support custom endpoint for VPC endpoints or testing
-	if endpoint := getProviderOpt[string](cfg.ProviderOpts, "endpoint_url"); endpoint != "" {
+	// The catalog template leaves regional and partition-specific routing to AWS.
+	endpoint := getProviderOpt[string](cfg.ProviderOpts, "endpoint_url")
+	if !catalog.IsDefaultEndpoint("amazon-bedrock", cfg.BaseURL) {
+		endpoint = cmp.Or(endpoint, cfg.BaseURL)
+	}
+	if endpoint != "" {
 		clientOpts = append(clientOpts, func(o *bedrockruntime.Options) {
 			o.BaseEndpoint = new(endpoint)
 		})

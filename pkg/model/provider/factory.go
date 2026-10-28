@@ -168,6 +168,13 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 	if err != nil {
 		return nil, err
 	}
+	if setter, ok := p.(interface{ SetDispatchConfig(cfg *latest.ModelConfig) }); ok {
+		source, err := copyModelConfig(*constructionCfg)
+		if err != nil {
+			return nil, err
+		}
+		setter.SetDispatchConfig(&source)
+	}
 	r.attachRebuilder(p, nil, env)
 	// Wrap leaf providers with the GenAI semconv tracer so every chat
 	// completion emits a `chat {model}` CLIENT span and the standard

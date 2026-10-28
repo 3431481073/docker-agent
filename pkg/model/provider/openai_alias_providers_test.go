@@ -38,9 +38,8 @@ type openAIAliasProvider struct {
 	model    string // default model to send
 	greeting string // words the mock server streams back, joined into one reply
 
-	// mergesSystemMessages is true for open-model hosts (openModelHostProviders
-	// in the openai client) whose strict chat templates require the per-source
-	// system messages to be coalesced into a single leading one (issue #3344).
+	// mergesSystemMessages is true for open-model hosts whose strict chat
+	// templates require a single leading system message (issue #3344).
 	// First-party APIs with a fixed model lineup leave them untouched.
 	mergesSystemMessages bool
 
@@ -347,28 +346,18 @@ func TestOpenAIAliasProvider_LiveAPI(t *testing.T) {
 	}
 }
 
-func TestAPIRouteLiveAPIRequiresExplicitOptIn(t *testing.T) {
-	assertLiveAPIRequiresExplicitOptIn(t, "api-route")
-}
-
-func TestLunarouteLiveAPIRequiresExplicitOptIn(t *testing.T) {
-	assertLiveAPIRequiresExplicitOptIn(t, "lunaroute")
-}
-
-func TestOrcaRouterLiveAPIRequiresExplicitOptIn(t *testing.T) {
-	assertLiveAPIRequiresExplicitOptIn(t, "orcarouter")
-}
-
-func assertLiveAPIRequiresExplicitOptIn(t *testing.T, providerName string) {
-	t.Helper()
-	var p openAIAliasProvider
-	for _, candidate := range openAIAliasProviders {
-		if candidate.provider == providerName {
-			p = candidate
-			break
+func TestOpenAIAliasProvider_LiveAPIRequiresExplicitOptIn(t *testing.T) {
+	for _, p := range openAIAliasProviders {
+		if p.liveOptInEnvVar != "" {
+			t.Run(p.provider, func(t *testing.T) {
+				assertLiveAPIRequiresExplicitOptIn(t, p)
+			})
 		}
 	}
-	require.NotEmpty(t, p.liveOptInEnvVar)
+}
+
+func assertLiveAPIRequiresExplicitOptIn(t *testing.T, p openAIAliasProvider) {
+	t.Helper()
 	var requests atomic.Int32
 	var mu sync.Mutex
 	var hosts []string
