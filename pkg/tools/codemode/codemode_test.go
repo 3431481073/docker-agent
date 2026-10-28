@@ -119,6 +119,40 @@ func TestCodeModeTool_TypeScriptDeclarationsInDescription(t *testing.T) {
 	assert.NotContains(t, allTools[0].Description, "Where Input follows the following JSON schema")
 }
 
+func TestCodeModeTool_RuntimeHandledToolsStayDirect(t *testing.T) {
+	t.Parallel()
+
+	// transfer_task is declared with a RuntimeHandler and no in-process Handler;
+	// wrapping it into the script toolset made every delegation fail with
+	// "tool \"transfer_task\" is not available in code mode" (#4713).
+	runtimeTool := tools.Tool{
+		Name:           "transfer_task",
+		RuntimeHandler: "transfer_task",
+		Parameters:     tools.MustSchemaFor[map[string]any](),
+	}
+	ordinary := tools.Tool{
+		Name:       "ordinary_tool",
+		Parameters: tools.MustSchemaFor[map[string]any](),
+		Handler: tools.NewHandler(func(context.Context, map[string]any) (*tools.ToolCallResult, error) {
+			return tools.ResultSuccess("ok"), nil
+		}),
+	}
+	ts := Wrap(&testToolSet{tools: []tools.Tool{runtimeTool, ordinary}})
+	list, err := ts.Tools(t.Context())
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+
+	script := list[0]
+	assert.Equal(t, "run_tools_with_javascript", script.Name)
+	assert.NotContains(t, script.Description, "TransferTask", "runtime-handled tools must not be declared as script functions")
+	assert.Contains(t, script.Description, "OrdinaryTool")
+
+	direct := list[1]
+	assert.Equal(t, "transfer_task", direct.Name)
+	assert.Equal(t, "transfer_task", direct.RuntimeHandler, "the runtime must still dispatch it")
+	assert.Nil(t, direct.Handler)
+}
+
 func TestCodeModeTool_RepeatableToolsStayDirect(t *testing.T) {
 	t.Parallel()
 
