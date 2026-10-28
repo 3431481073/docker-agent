@@ -82,6 +82,11 @@ func TestAvailableProviders_NoGateway(t *testing.T) {
 			expectedProvider: "api-route",
 		},
 		{
+			name:             "lunaroute api key present",
+			envVars:          map[string]string{"LUNAROUTE_API_KEY": "lr_test"},
+			expectedProvider: "lunaroute",
+		},
+		{
 			name: "orcarouter api key present",
 			envVars: map[string]string{
 				"ORCAROUTER_API_KEY": "test-key",
@@ -376,6 +381,13 @@ func TestAutoModelConfig(t *testing.T) {
 			expectedMaxTokens: 32000,
 		},
 		{
+			name:              "lunaroute provider",
+			envVars:           map[string]string{"LUNAROUTE_API_KEY": "lr_test"},
+			expectedProvider:  "lunaroute",
+			expectedModel:     "glm-5.3",
+			expectedMaxTokens: 32000,
+		},
+		{
 			name: "orcarouter provider",
 			envVars: map[string]string{
 				"ORCAROUTER_API_KEY": "test-key",
@@ -584,6 +596,7 @@ func TestDefaultModels(t *testing.T) {
 	assert.Equal(t, "mistral-small-latest", DefaultModels["mistral"])
 	assert.Equal(t, "meta-llama/llama-4-maverick", DefaultModels["openrouter"])
 	assert.Equal(t, "orcarouter/auto", DefaultModels["orcarouter"])
+	assert.Equal(t, "glm-5.3", DefaultModels["lunaroute"])
 	assert.Equal(t, "qwen/qwen3.8-max", DefaultModels["atlascloud"])
 	assert.Equal(t, "deepseek-ai/DeepSeek-V4-Pro-0813", DefaultModels["baseten"])
 	assert.Equal(t, "Qwen3.5-397B-A17B", DefaultModels["ovhcloud"])
@@ -1227,6 +1240,7 @@ func TestProviderAPIKeyEnvVars(t *testing.T) {
 		"MISTRAL_API_KEY",
 		"OPENROUTER_API_KEY",
 		"ATLASCLOUD_API_KEY",
+		"LUNAROUTE_API_KEY",
 		"XAI_API_KEY",
 		"NEBIUS_API_KEY",
 	} {

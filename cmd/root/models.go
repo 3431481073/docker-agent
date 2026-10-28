@@ -46,6 +46,7 @@ const listTimeout = 5 * time.Second
 // from the snapshot) prevents surprising side effects like `docker agent models
 // --provider ollama` issuing a real GET against localhost.
 var liveFetchProviders = map[string]bool{
+	"lunaroute":   true,
 	"opencode":    true,
 	"opencode-go": true,
 }

@@ -65,6 +65,15 @@ var openAIAliasProviders = []openAIAliasProvider{
 		liveOptInEnvVar:      "DOCKER_AGENT_RUN_API_ROUTE_LIVE_TEST",
 	},
 	{
+		provider:             "lunaroute",
+		envVar:               "LUNAROUTE_API_KEY",
+		testKey:              "lr_test-lunaroute-key",
+		model:                "glm-5.3",
+		greeting:             "Hello from Lunaroute",
+		mergesSystemMessages: true,
+		liveOptInEnvVar:      "DOCKER_AGENT_RUN_LUNAROUTE_LIVE_TEST",
+	},
+	{
 		provider:             "orcarouter",
 		envVar:               "ORCAROUTER_API_KEY",
 		testKey:              "test-orcarouter-key",
@@ -329,7 +338,7 @@ func TestOpenAIAliasProvider_EndToEndRequest(t *testing.T) {
 //	DEEPSEEK_API_KEY=sk-... go test -run TestOpenAIAliasProvider_LiveAPI ./pkg/model/provider/
 //
 // API Route additionally requires DOCKER_AGENT_RUN_API_ROUTE_LIVE_TEST=1;
-// OrcaRouter requires DOCKER_AGENT_RUN_ORCAROUTER_LIVE_TEST=1.
+// OrcaRouter and Lunaroute also require their respective DOCKER_AGENT_RUN_*_LIVE_TEST=1 opt-ins.
 func TestOpenAIAliasProvider_LiveAPI(t *testing.T) {
 	for _, p := range openAIAliasProviders {
 		t.Run(p.provider, func(t *testing.T) {
@@ -340,6 +349,10 @@ func TestOpenAIAliasProvider_LiveAPI(t *testing.T) {
 
 func TestAPIRouteLiveAPIRequiresExplicitOptIn(t *testing.T) {
 	assertLiveAPIRequiresExplicitOptIn(t, "api-route")
+}
+
+func TestLunarouteLiveAPIRequiresExplicitOptIn(t *testing.T) {
+	assertLiveAPIRequiresExplicitOptIn(t, "lunaroute")
 }
 
 func TestOrcaRouterLiveAPIRequiresExplicitOptIn(t *testing.T) {
