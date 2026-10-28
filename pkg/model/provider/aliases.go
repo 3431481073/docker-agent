@@ -75,6 +75,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.runcrate.ai/v1",
 		TokenEnvVar: "RUNCRATE_API_KEY",
 	},
+	"lunaroute": {
+		APIType:     "openai",
+		BaseURL:     "https://gw.lunaroute.com/v1",
+		TokenEnvVar: "LUNAROUTE_API_KEY",
+	},
 	"orcarouter": {
 		APIType:     "openai",
 		BaseURL:     "https://api.orcarouter.ai/v1",

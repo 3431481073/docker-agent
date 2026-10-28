@@ -284,6 +284,7 @@ var openModelHostProviders = map[string]bool{
 	"opper":        true,
 	"runcrate":     true,
 	"orcarouter":   true,
+	"lunaroute":    true,
 	"nebius":       true,
 	"nvidia":       true,
 	"cerebras":     true,

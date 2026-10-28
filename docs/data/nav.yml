@@ -209,6 +209,8 @@
       url: /providers/huggingface/
     - title: Local Models
       url: /providers/local/
+    - title: Lunaroute
+      url: /providers/lunaroute/
     - title: MiniMax
       url: /providers/minimax/
     - title: Mistral

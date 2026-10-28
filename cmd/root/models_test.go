@@ -980,3 +980,53 @@ func TestModelsListCommand_CaseDuplicateCustomProviderFilter(t *testing.T) {
 	assert.Equal(t, "fireworks", rows[1].Provider)
 	assert.Equal(t, "lower-model", rows[1].Model)
 }
+
+func TestModelsListCommand_LunarouteLiveDiscovery(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/v1/models", r.URL.Path)
+		assert.Equal(t, "Bearer lr_test", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"glm-live-only"},{"id":"glm-live-only"},{"id":"text-embedding-test"}]}`))
+	}))
+	defer server.Close()
+
+	alias := provider.Aliases["lunaroute"]
+	defer func() { provider.Aliases["lunaroute"] = alias }()
+	localAlias := alias
+	localAlias.BaseURL = server.URL + "/v1"
+	provider.Aliases["lunaroute"] = localAlias
+
+	tests := []struct {
+		name         string
+		env          map[string]string
+		args         []string
+		wantRequests int32
+		wantLive     bool
+	}{
+		{"filtered with key", map[string]string{"LUNAROUTE_API_KEY": "lr_test"}, []string{"--provider", "lunaroute"}, 1, true},
+		{"no key", nil, []string{"--provider", "lunaroute"}, 0, false},
+		{"unfiltered", map[string]string{"LUNAROUTE_API_KEY": "lr_test"}, nil, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests.Store(0)
+			var buf bytes.Buffer
+			cmd := newModelsCmd(withTestConfig(tt.env))
+			cmd.SetOut(&buf)
+			cmd.SetErr(&buf)
+			cmd.SetArgs(tt.args)
+			require.NoError(t, cmd.Execute())
+			assert.Equal(t, tt.wantRequests, requests.Load())
+			if tt.wantLive {
+				assert.Equal(t, 1, strings.Count(buf.String(), "glm-live-only"))
+				assert.Contains(t, buf.String(), "glm-5.3")
+				assert.NotContains(t, buf.String(), "text-embedding-test")
+			} else {
+				assert.NotContains(t, buf.String(), "glm-live-only")
+			}
+		})
+	}
+}
