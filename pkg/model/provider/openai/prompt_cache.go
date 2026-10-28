@@ -23,6 +23,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/oaistream"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 )
@@ -53,7 +54,7 @@ func sendsExplicitCacheBreakpoints(cfg *latest.ModelConfig, openAIVendor bool) b
 	if !modelinfo.OpenAISupportsExplicitPromptCache(cfg.Model) {
 		return false
 	}
-	if cfg.Provider == "openai" && cfg.BaseURL != "" {
+	if cfg.Provider == "openai" && !catalog.IsDefaultEndpoint(cfg.Provider, cfg.BaseURL) {
 		return false
 	}
 	return modelinfo.IsOpenAIVendor(cfg.Provider, cfg.Model) || openAIVendor

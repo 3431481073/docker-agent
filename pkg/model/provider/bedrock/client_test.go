@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -273,6 +274,43 @@ func TestNewClient_BearerTokenRequest(t *testing.T) {
 	assert.Equal(t, "bedrock-runtime.eu-west-1.amazonaws.com", got.URL.Host)
 	assert.Equal(t, "Bearer test-api-key-12345", got.Header.Get("Authorization"))
 	assert.Empty(t, got.Header.Get("X-Amz-Date"), "no SigV4 signing")
+}
+
+func TestNewClient_EndpointResolution(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, baseURL, endpointURL, wantHost string
+	}{
+		{"catalog default", catalog.Lookup("amazon-bedrock").BaseURL, "", "bedrock-runtime.eu-west-1.amazonaws.com"},
+		{"custom base URL", "https://custom.example", "", "custom.example"},
+		{"endpoint option wins", "https://custom.example", "https://vpc.example", "vpc.example"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got *http.Request
+			cfg := &latest.ModelConfig{
+				Provider: "amazon-bedrock", Model: "anthropic.claude-v2", BaseURL: tc.baseURL,
+				ProviderOpts: map[string]any{"region": "eu-west-1", "endpoint_url": tc.endpointURL},
+			}
+			client, err := NewClient(t.Context(), cfg, environment.NewMapEnvProvider(map[string]string{"AWS_BEARER_TOKEN_BEDROCK": "test-token"}),
+				options.WithHTTPTransportWrapper(func(http.RoundTripper) http.RoundTripper {
+					return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+						got = req
+						return &http.Response{
+							StatusCode: http.StatusForbidden,
+							Header:     http.Header{"Content-Type": []string{"application/json"}},
+							Body:       io.NopCloser(strings.NewReader(`{"message":"denied"}`)), Request: req,
+						}, nil
+					})
+				}))
+			require.NoError(t, err)
+			_, err = client.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hi"}}, nil)
+			require.Error(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantHost, got.URL.Host)
+		})
+	}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

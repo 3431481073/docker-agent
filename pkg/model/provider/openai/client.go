@@ -21,17 +21,16 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/docker/docker-agent/pkg/chat"
-	"github.com/docker/docker-agent/pkg/chatgpt"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/oaistream"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelinfo"
-	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/rag/prompts"
 	"github.com/docker/docker-agent/pkg/rag/types"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -100,10 +99,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			// Explicit token_key configured - use that env var
 			authToken, tokenKey := authTokenForTokenKey(ctx, cfg, env)
 			if authToken == "" {
-				if cfg.Provider == "github-copilot" && cfg.TokenKey == "GITHUB_TOKEN" {
-					return nil, errors.New("GITHUB_TOKEN or GH_TOKEN environment variable is required")
-				}
-				return nil, fmt.Errorf("%s environment variable is required", tokenKey)
+				return nil, fmt.Errorf("%s environment variable is required", strings.Join(catalog.TokenKeys(cfg.Provider, tokenKey), " or "))
 			}
 			clientOptions = append(clientOptions, option.WithAPIKey(authToken))
 		case isCustomProvider(cfg):
@@ -125,23 +121,13 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			// (OPENAI_API_KEY from the OS env).
 		}
 
-		if cfg.Provider == "azure" {
-			// Azure configuration
-			if cfg.BaseURL != "" {
-				clientOptions = append(clientOptions, option.WithBaseURL(cfg.BaseURL))
-			}
-
-			// Azure API version from provider opts
-			if cfg.ProviderOpts != nil {
-				if apiVersion, exists := cfg.ProviderOpts["api_version"]; exists {
-					slog.DebugContext(ctx, "Setting API version", "api_version", apiVersion)
-					if apiVersionStr, ok := apiVersion.(string); ok {
-						clientOptions = append(clientOptions, option.WithQueryAdd("api-version", apiVersionStr))
-					}
-				}
-			}
-		} else if cfg.BaseURL != "" {
+		if cfg.BaseURL != "" {
 			clientOptions = append(clientOptions, option.WithBaseURL(cfg.BaseURL))
+		}
+		for key, name := range catalog.Lookup(cfg.Provider).QueryParams {
+			if value, ok := cfg.ProviderOpts[key].(string); ok {
+				clientOptions = append(clientOptions, option.WithQueryAdd(name, value))
+			}
 		}
 
 		// Apply custom HTTP headers from provider_opts (e.g. github-copilot's
@@ -268,37 +254,6 @@ func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) [
 	return oaistream.ConvertMessages(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
 }
 
-// openModelHostProviders are built-in OpenAI-compatible aliases that front
-// arbitrary open-weight models (Qwen, GLM, Llama, DeepSeek, ...) whose
-// server-side chat templates may reject a request with more than one system
-// message. First-party APIs with a fixed, vendor-controlled model lineup
-// (openai, mistral, xai, minimax, github-copilot, opencode) tolerate multiple
-// system messages and are deliberately absent so their behavior is unchanged.
-var openModelHostProviders = map[string]bool{
-	"api-route":    true,
-	"atlascloud":   true,
-	"baseten":      true,
-	"daoxe":        true,
-	"ovhcloud":     true,
-	"openrouter":   true,
-	"opper":        true,
-	"runcrate":     true,
-	"orcarouter":   true,
-	"lunaroute":    true,
-	"nebius":       true,
-	"nvidia":       true,
-	"cerebras":     true,
-	"fireworks-ai": true,
-	"togetherai":   true,
-	"huggingface":  true,
-	"vercel":       true,
-	// Cloudflare Workers AI serves open-weight models directly; the AI Gateway
-	// fronts them (and other providers) through one endpoint. Both plausibly
-	// reach models with strict single-system-message chat templates.
-	"cloudflare-workers-ai": true,
-	"cloudflare-ai-gateway": true,
-}
-
 // shouldMergeConsecutiveMessages reports whether the chat-completions request
 // should coalesce consecutive same-role messages before sending.
 //
@@ -312,7 +267,7 @@ var openModelHostProviders = map[string]bool{
 // It is scoped to endpoints that plausibly front such models: explicit
 // chat-completions custom providers, a self-hosted server reached by pointing
 // the openai provider at a custom base_url (vLLM/SGLang), and the open-model
-// host aliases above. The official OpenAI API and other first-party APIs are
+// host aliases declared in the catalog. The official OpenAI API and other first-party APIs are
 // left untouched.
 func shouldMergeConsecutiveMessages(cfg *latest.ModelConfig) bool {
 	if cfg == nil {
@@ -324,10 +279,10 @@ func shouldMergeConsecutiveMessages(cfg *latest.ModelConfig) bool {
 	}
 	// A custom base_url on the openai provider means a self-hosted or
 	// third-party OpenAI-compatible server (e.g. vLLM), not api.openai.com.
-	if cfg.Provider == "openai" && cfg.BaseURL != "" {
+	if cfg.Provider == "openai" && !catalog.IsDefaultEndpoint(cfg.Provider, cfg.BaseURL) {
 		return true
 	}
-	return openModelHostProviders[modelsdev.CanonicalProviderID(cfg.Provider)]
+	return catalog.Lookup(cfg.Provider).MergeConsecutiveMessages
 }
 
 // contextLimit returns this model's context window in tokens, preferring an
@@ -920,13 +875,12 @@ func (c *Client) buildWSHeaderFn() func(ctx context.Context) (http.Header, error
 }
 
 func authTokenForTokenKey(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider) (string, string) {
-	token, _ := env.Get(ctx, cfg.TokenKey)
-	if token == "" && cfg.Provider == "github-copilot" && cfg.TokenKey == "GITHUB_TOKEN" {
-		if fallback, _ := env.Get(ctx, "GH_TOKEN"); fallback != "" {
-			return fallback, "GH_TOKEN"
+	for _, key := range catalog.TokenKeys(cfg.Provider, cfg.TokenKey) {
+		if token, _ := env.Get(ctx, key); token != "" {
+			return token, key
 		}
 	}
-	return token, cfg.TokenKey
+	return "", cfg.TokenKey
 }
 
 // webSocketEnabled reports whether transport=websocket can be honoured. WebSocket
@@ -1423,11 +1377,7 @@ func isCustomProvider(cfg *latest.ModelConfig) bool {
 // driven by modelinfo.SupportsResponsesAPI so new models are picked up by
 // naming convention rather than a hardcoded allow-list.
 func autoSelectsResponsesAPI(provider string) bool {
-	switch modelsdev.CanonicalProviderID(provider) {
-	case "openai", "github-copilot", "opencode", chatgpt.ProviderName:
-		return true
-	}
-	return false
+	return catalog.Lookup(provider).AutoResponses
 }
 
 // noThinkingMinOutputTokens is the minimum output-token budget we enforce for

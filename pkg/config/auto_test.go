@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/docker/docker-agent/pkg/chatgpt"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
-	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -1223,52 +1222,6 @@ func (e *stubPullError) Error() string { return e.fullDetail }
 
 func (e *stubPullError) ModelPullErrorSummary() string { return e.summary }
 
-func TestProviderAPIKeyEnvVars(t *testing.T) {
-	t.Parallel()
-
-	vars := ProviderAPIKeyEnvVars()
-
-	// Sorted and deduplicated for reproducibility.
-	assert.True(t, slices.IsSorted(vars), "env vars must be sorted, got %v", vars)
-	assert.Equal(t, slices.Compact(slices.Clone(vars)), vars, "env vars must be deduplicated")
-
-	// The dedicated single-secret model API keys must be present.
-	for _, name := range []string{
-		"OPENAI_API_KEY",
-		"ANTHROPIC_API_KEY",
-		"GOOGLE_API_KEY",
-		"MISTRAL_API_KEY",
-		"OPENROUTER_API_KEY",
-		"ATLASCLOUD_API_KEY",
-		"LUNAROUTE_API_KEY",
-		"XAI_API_KEY",
-		"NEBIUS_API_KEY",
-	} {
-		assert.Contains(t, vars, name)
-	}
-
-	// Non-secret detection/mode flags and multi-variable credential sets must
-	// never be exposed as forwardable API keys.
-	for _, name := range []string{
-		"GOOGLE_GENAI_USE_VERTEXAI",
-		"GEMINI_API_KEY",
-		"AWS_ACCESS_KEY_ID",
-		"AWS_PROFILE",
-		"AWS_ROLE_ARN",
-		"AWS_BEARER_TOKEN_BEDROCK",
-	} {
-		assert.NotContains(t, vars, name)
-	}
-
-	// Broad, general-purpose tokens must not be forwarded as model credentials.
-	assert.NotContains(t, vars, "GITHUB_TOKEN")
-	assert.NotContains(t, vars, "GH_TOKEN")
-
-	// The ChatGPT OAuth access token is a subscription credential, not an
-	// API key, and must never be forwarded into isolated environments.
-	assert.NotContains(t, vars, chatgpt.TokenEnvVar)
-}
-
 func TestCloudProviderEnvVars(t *testing.T) {
 	t.Parallel()
 
@@ -1300,7 +1253,7 @@ func TestDefaultModelsExistInModelsDev(t *testing.T) {
 	for providerID, model := range DefaultModels {
 		t.Run(providerID, func(t *testing.T) {
 			t.Parallel()
-			require.True(t, provider.IsKnownProvider(providerID))
+			require.True(t, catalog.IsKnownProvider(providerID))
 			require.Equal(t, providerID, modelsdev.CanonicalProviderID(providerID))
 			if modelsDevAbsentProviders[providerID] {
 				return // Providers with their own catalogs cannot be validated against models.dev.
@@ -1319,7 +1272,7 @@ func TestCloudProvidersCanonical(t *testing.T) {
 	t.Parallel()
 	for _, cfg := range cloudProviders {
 		assert.Equal(t, cfg.name, modelsdev.CanonicalProviderID(cfg.name))
-		assert.True(t, provider.IsKnownProvider(cfg.name), cfg.name)
+		assert.True(t, catalog.IsKnownProvider(cfg.name), cfg.name)
 		assert.Contains(t, DefaultModels, cfg.name)
 	}
 }

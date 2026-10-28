@@ -211,6 +211,16 @@ func (p *fakeEnvProvider) Get(_ context.Context, name string) (string, bool) {
 	return v, ok
 }
 
+func TestCheckRequiredEnvVarsCredentialFreeCatalogProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{Models: map[string]latest.ModelConfig{
+		"local": {Provider: "ollama", Model: "llama3"},
+	}, Agents: latest.Agents{{Name: "root", Model: "local"}}}
+	assert.Empty(t, GatherEnvVarsForModels(t.Context(), cfg, environment.NewNoEnvProvider()))
+	require.NoError(t, CheckRequiredEnvVars(t.Context(), cfg, "", environment.NewNoEnvProvider()))
+}
+
 func TestCheckRequiredEnvVars(t *testing.T) {
 	t.Parallel()
 

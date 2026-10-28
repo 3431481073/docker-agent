@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/model/provider/dmr/dmrmodels"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
@@ -408,10 +409,9 @@ func (r *Catalog) buildCatalogChoices(ctx context.Context) []ModelChoice {
 
 // mapModelsDevProvider maps a models.dev provider ID to a docker agent provider name.
 // Returns the docker agent provider name and whether it's supported.
-// Uses provider.IsCatalogProvider to dynamically include all core providers
-// and aliases with defined base URLs.
+// Uses catalog metadata to include providers that need no endpoint configuration.
 func mapModelsDevProvider(providerID string) (string, bool) {
-	if provider.IsCatalogProvider(providerID) {
+	if catalog.IsCatalogProvider(providerID) {
 		return providerID, true
 	}
 	return "", false

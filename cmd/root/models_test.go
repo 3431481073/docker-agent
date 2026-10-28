@@ -19,7 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
-	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/catalog"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -814,11 +814,11 @@ func TestModelsListCommand_LegacyProviderFilter(t *testing.T) {
 		t.Run(legacy, func(t *testing.T) {
 			t.Parallel()
 			canonical := modelsdev.CanonicalProviderID(legacy)
-			alias, ok := provider.LookupAlias(canonical)
+			alias, ok := catalog.Find(canonical)
 			require.True(t, ok)
 			var buf bytes.Buffer
 			cmd := newModelsCmd(func(rc *config.RuntimeConfig) {
-				rc.EnvProviderForTests = environment.NewMapEnvProvider(map[string]string{alias.TokenEnvVar: "test-key"})
+				rc.EnvProviderForTests = environment.NewMapEnvProvider(map[string]string{alias.TokenEnvVars[0]: "test-key"})
 				rc.Providers = map[string]latest.ProviderConfig{}
 				rc.ModelsDevStoreOverride = modelsdev.NewDatabaseStore(&modelsdev.Database{Providers: map[string]modelsdev.Provider{
 					canonical: {Models: map[string]modelsdev.Model{"catalog-only": {Modalities: modelsdev.Modalities{Output: []string{"text"}}}}},
@@ -993,11 +993,11 @@ func TestModelsListCommand_LunarouteLiveDiscovery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	alias := provider.Aliases["lunaroute"]
-	defer func() { provider.Aliases["lunaroute"] = alias }()
+	alias := catalog.Providers["lunaroute"]
+	defer func() { catalog.Providers["lunaroute"] = alias }()
 	localAlias := alias
 	localAlias.BaseURL = server.URL + "/v1"
-	provider.Aliases["lunaroute"] = localAlias
+	catalog.Providers["lunaroute"] = localAlias
 
 	tests := []struct {
 		name         string
