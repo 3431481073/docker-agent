@@ -40,7 +40,7 @@ require (
 	github.com/docker/portcullis v1.1.4
 	github.com/docker/secrets-engine/client v0.2.2
 	github.com/docker/secrets-engine/x v0.8.5
-	github.com/dop251/goja v0.0.0-20261026132650-6b6a90e51946
+	github.com/dop251/goja v0.0.0-20261028213108-85be1416108e
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/fsnotify/fsnotify v1.10.1
@@ -144,7 +144,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
+	github.com/dlclark/regexp2/v2 v2.11.0 // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/docker/go-connections v0.7.0 // indirect

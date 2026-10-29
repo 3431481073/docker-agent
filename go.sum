@@ -162,8 +162,8 @@ github.com/dgageot/ultraviolet v0.0.0-20260313154905-9451997d56b6 h1:88fWkkjwzuI
 github.com/dgageot/ultraviolet v0.0.0-20260313154905-9451997d56b6/go.mod h1:SQpCTRNBtzJkwku5ye4S3HEuthAlGy2n9VXZnWkEW98=
 github.com/distribution/reference v0.6.0 h1:0IXCQ5g4/QMHHkarYzh5l+u8T3t73zM5QvfrDyIgxBk=
 github.com/distribution/reference v0.6.0/go.mod h1:BbU0aIcezP1/5jX/8MP0YiH4SdvB5Y4f/wlDRiLyi3E=
-github.com/dlclark/regexp2/v2 v2.8.1 h1:I1jbaCbXeOxdVN8z3fb55Mvtgb94/6+Dh0zjmXjKV/0=
-github.com/dlclark/regexp2/v2 v2.8.1/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
+github.com/dlclark/regexp2/v2 v2.11.0 h1:z5uRPHav+eTVpoffDSuUP2KPS4f1ONZaPDK73S8HA0w=
+github.com/dlclark/regexp2/v2 v2.11.0/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/dnaeon/go-vcr v1.2.0 h1:zHCHvJYTMh1N7xnV7zf1m1GPBF9Ad0Jk/whtQ1663qI=
 github.com/dnaeon/go-vcr v1.2.0/go.mod h1:R4UdLID7HZT3taECzJs4YgbbH6PIGXB6W/sc5OLb6RQ=
 github.com/docker/aijson v0.1.0 h1:61XgIzb5QJWd72sFchdTMwdwH4rA4G62X1KjneekNkY=
@@ -186,8 +186,8 @@ github.com/docker/secrets-engine/client v0.2.2 h1:aPvmlzsxNA+C+xgp2F+WiiDbCSAXHC
 github.com/docker/secrets-engine/client v0.2.2/go.mod h1:c3l/N+fA0kiy9S8BE3kKrO5hOZu4+SLYZK9Jx+jc2cw=
 github.com/docker/secrets-engine/x v0.8.5 h1:P7D/YESMjpX18S4ratBgoeJkAFIxgsPxe093uFmgiGc=
 github.com/docker/secrets-engine/x v0.8.5/go.mod h1:jQ5CXCYCPn8Sw96TS8Ufq3oyIGH2GzUtVXIdwa2Q0VU=
-github.com/dop251/goja v0.0.0-20261026132650-6b6a90e51946 h1:XiP6PJnb0OB3kzs3Wv7ynJFI8yG+zo+JgOa2G5rq6f8=
-github.com/dop251/goja v0.0.0-20261026132650-6b6a90e51946/go.mod h1:Cp9NYOLrEKg/ypIRkUWYXWLuKAyyFGkDmGeJ95Sw0zI=
+github.com/dop251/goja v0.0.0-20261028213108-85be1416108e h1:PuT0TmyOg0OYUpa6hP0fKMdoKEaJjER/Zlc6RaM7rUo=
+github.com/dop251/goja v0.0.0-20261028213108-85be1416108e/go.mod h1:L1yoLBco9M3b2Gdh1UZHg+BIePeAdV1bwknaLLxAgoc=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
 github.com/dvsekhvalnov/jose2go v1.7.0 h1:bnQc8+GMnidJZA8zc6lLEAb4xNrIqHwO+9TzqvtQZPo=
