@@ -36,6 +36,10 @@ Keep comments short and to the point:
 - Ask clarifying questions only when truly necessary
 - When possible, call independent tools concurrently — it's faster
 
+### Model Providers
+
+When adding or changing a model provider, follow the [provider implementation checklist](docs/community/contributing/index.md#implementation-checklist).
+
 ### Client and Session Lifetimes
 
 - Provider clients are built per team load: once per session in `serve api`,

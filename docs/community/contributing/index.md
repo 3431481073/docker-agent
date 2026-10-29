@@ -50,6 +50,66 @@ export ANTHROPIC_API_KEY=your_key_here
 | `task build-local` | Build for local platform via Docker             |
 | `task cross`       | Cross-platform builds (all architectures)       |
 
+## Adding a model provider
+
+First decide whether the provider can use an existing API implementation or needs
+its own backend. A user can also configure an OpenAI-compatible endpoint without
+adding a built-in provider; see [provider definitions](../../providers/custom/index.md).
+
+### Compatible providers
+
+For a built-in provider using an existing API, start with the embedded
+[provider catalog](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/catalog/providers.json).
+Choose a canonical provider ID (the models.dev ID where available), API type,
+endpoint, credentials and default model as appropriate. The
+[catalog type](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/catalog/catalog.go)
+documents the metadata and selection rules; use behavior flags only when they
+apply to the provider. Catalog order affects automatic provider selection. Check
+the [models.dev ID tests](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/catalog_test.go)
+if the provider is absent from the embedded snapshot.
+
+A typical OpenAI-compatible provider uses the existing OpenAI implementation;
+it does not need a separate client or factory.
+
+### Native backends
+
+If the protocol or authentication cannot be handled by an existing backend,
+implement the [provider contract](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/contracts/contracts.go),
+register its factory in the [default registry](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/providers/providers.go),
+and add catalog metadata as appropriate. Check the optional provider interfaces
+in the contract if the backend supports additional capabilities.
+
+### Implementation checklist
+
+For either path, inspect the affected integrations rather than assuming a catalog
+entry covers them all:
+
+- **Configuration and dispatch:** Follow [defaults and overrides](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/defaults.go)
+  through the [factory](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/factory.go).
+  For new backends, consider whether other registries, such as [WASM](https://github.com/docker/docker-agent/blob/main/cmd/wasm/providers.go),
+  should support them. If the public config changes, update [latest](https://github.com/docker/docker-agent/blob/main/pkg/config/latest/types.go),
+  `agent-schema.json`, docs and an example; leave frozen versions unchanged.
+- **Credentials and discovery:** Check [credential preflight](https://github.com/docker/docker-agent/blob/main/pkg/config/gather.go),
+  [auto-selection](https://github.com/docker/docker-agent/blob/main/pkg/config/auto.go) and
+  [discovery](https://github.com/docker/docker-agent/blob/main/pkg/config/discovery.go),
+  particularly for native authentication or templated endpoints.
+- **Model listing:** Inspect [models.dev lookup](https://github.com/docker/docker-agent/blob/main/pkg/modelsdev/store.go),
+  the [runtime model picker](https://github.com/docker/docker-agent/blob/main/pkg/runtime/modelcatalog/catalog.go)
+  and [CLI listing](https://github.com/docker/docker-agent/blob/main/cmd/root/models.go).
+  Auto-selection, the picker and the CLI have different eligibility rules; a
+  catalog entry does not by itself enable live endpoint discovery.
+- **Tests and docs:** Start with [catalog tests](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/catalog/catalog_test.go),
+  [alias request tests](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/openai_alias_providers_test.go)
+  and [factory tests](https://github.com/docker/docker-agent/blob/main/pkg/model/provider/factory_test.go).
+  Cover affected defaults, overrides, credentials, requests, streaming, errors,
+  selection and discovery as applicable; see tests alongside those integrations.
+  Update the [provider credentials overview](../../providers/overview/index.md#provider-credentials)
+  and add user-facing setup docs or examples as needed.
+
+Run the relevant tests and the [development checks](#development-commands); live
+API tests can make external requests, so use them only when intentionally
+testing with credentials.
+
 ## Debugging TUI Tests
 
 The headless TUI harness can save each captured frame for inspection:
