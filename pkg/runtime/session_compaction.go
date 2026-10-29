@@ -21,6 +21,14 @@ import (
 
 var errCompactionBudgetExceeded = errors.New("compaction budget exhausted")
 
+// ErrCompactionInProgress indicates that the session already has an active compaction.
+var ErrCompactionInProgress = errors.New("compaction already in progress")
+
+func (r *LocalRuntime) acquireCompaction(sessionID string) bool {
+	_, loaded := r.activeCompactions.LoadOrStore(sessionID, struct{}{})
+	return !loaded
+}
+
 // Compaction reasons reported to BeforeCompaction / AfterCompaction hooks.
 const (
 	compactionReasonThreshold = "threshold"

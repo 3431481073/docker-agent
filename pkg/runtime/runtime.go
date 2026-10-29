@@ -359,6 +359,8 @@ type LocalRuntime struct {
 	liveSessionsMu sync.Mutex
 	liveSessions   map[string]*liveSessionEntry
 
+	activeCompactions sync.Map // session ID -> struct{}
+
 	// recallHandler wakes embedders (TUI/App) when a tool recall arrives after
 	// the active RunStream has gone idle. Protected by recallMu because tool
 	// callbacks can fire from background goroutines.
@@ -1543,7 +1545,9 @@ func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, add
 		},
 	})
 	r.configureToolsetHandlers(r.resolveSessionAgent(sess))
-	r.compactWithReason(ctx, sess, additionalPrompt, compactionReasonManual, events)
+	if err := r.compactWithReason(ctx, sess, additionalPrompt, compactionReasonManual, events); err != nil {
+		events.Emit(ErrorForSession(sess.ID, err.Error()))
+	}
 }
 
 // compactWithReason runs a session compaction with the supplied reason and
@@ -1561,7 +1565,11 @@ func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, add
 // compaction or contribute additional steering text. BeforeCompaction
 // hooks then fire inside [LocalRuntime.doCompact] with [Input.CompactionReason]
 // set to the canonical reason; they may veto or supply a custom summary.
-func (r *LocalRuntime) compactWithReason(ctx context.Context, sess *session.Session, additionalPrompt, reason string, events EventSink) {
+func (r *LocalRuntime) compactWithReason(ctx context.Context, sess *session.Session, additionalPrompt, reason string, events EventSink) error {
+	if !r.acquireCompaction(sess.ID) {
+		return ErrCompactionInProgress
+	}
+	defer r.activeCompactions.Delete(sess.ID)
 	// Stamp the session ID on ctx so the compaction LLM call carries
 	// `X-Cagent-Session-Id` to the gateway. Manual compaction
 	// (via `Summarize` from the App) bypasses `runStreamLoop`'s seed;
@@ -1578,7 +1586,7 @@ func (r *LocalRuntime) compactWithReason(ctx context.Context, sess *session.Sess
 		if msg != "" {
 			events.Emit(Warning(msg, a.Name()))
 		}
-		return
+		return nil
 	}
 	additionalPrompt = joinPrompts(additionalPrompt, extraPrompt)
 
@@ -1590,6 +1598,7 @@ func (r *LocalRuntime) compactWithReason(ctx context.Context, sess *session.Sess
 	modelID := r.getEffectiveModelID(ctx, a)
 	contextLimit := r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, a.Model(ctx), modelID))
 	events.Emit(NewTokenUsageEvent(sess.ID, a.Name(), SessionUsage(sess, contextLimit, a.CompactionThreshold())))
+	return nil
 }
 
 // preCompactSourceFor maps the canonical compaction reason
