@@ -74,6 +74,13 @@ type RunToolsWithJavascriptArgs struct {
 }
 
 func isExcludedTool(tool tools.Tool) bool {
+	// Tools executed by a host-owned RuntimeHandler (transfer_task, handoff,
+	// run_skill, the background-agent tools, ...) have no in-process Handler,
+	// so a call from the script would fail with "not available in code mode".
+	// Keep them direct so the runtime dispatches them as before.
+	if tool.RuntimeHandler != "" {
+		return true
+	}
 	// Repeatable calls need their own dispatch results for loop detection.
 	return tool.Category == "todo" || tool.AllowRepeatedCalls
 }
