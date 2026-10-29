@@ -106,7 +106,7 @@ func CreateToolSet(ctx context.Context, toolset latest.Toolset, runConfig *confi
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand the tool's environment variables: %w", err)
 		}
-		env = append(env, os.Environ()...)
+		env = mergeChildEnv(env)
 		env = toolinstall.PrependBinDirToEnv(env)
 
 		return NewToolsetCommand(toolset.Name, resolvedCommand, toolset.Args, env, cwd, lifecycle.PolicyFromConfig(toolset.Name, toolset.Lifecycle)), nil
@@ -1113,4 +1113,13 @@ func isConnectionError(err error) bool {
 	return errors.Is(classified, lifecycle.ErrTransport) ||
 		errors.Is(classified, lifecycle.ErrSessionMissing) ||
 		errors.Is(classified, lifecycle.ErrServerUnavailable)
+}
+
+// mergeChildEnv returns the child environment with the toolset's configured values taking
+// precedence over the host's. exec.Cmd dedupes duplicate keys by keeping the LAST entry, so the
+// host environment has to come first; appending os.Environ() last made every key the host also
+// exports win, which silently ran the toolset with the host's value (the opposite of what
+// shell/script toolsets document and of what tests pin for them).
+func mergeChildEnv(configured []string) []string {
+	return append(os.Environ(), configured...)
 }
