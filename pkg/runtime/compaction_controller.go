@@ -50,7 +50,9 @@ func (c *compactionController) check(ctx context.Context, a *agent.Agent, limit,
 		}
 		input, output = c.session.Usage()
 		if ctx.Err() == nil && compaction.ShouldCompact(input, output, added, limit, a.CompactionThreshold()) {
-			c.runtime.compactWithReason(ctx, c.session, "", compactionReasonThreshold, c.events)
+			if err := c.runtime.compactWithReason(ctx, c.session, "", compactionReasonThreshold, c.events); err != nil {
+				c.events.Emit(Warning(err.Error(), a.Name()))
+			}
 		}
 		return
 	}

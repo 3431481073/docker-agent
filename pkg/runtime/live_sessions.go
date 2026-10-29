@@ -235,6 +235,9 @@ func (r *LocalRuntime) CompactLiveSession(_ context.Context, sessionID, addition
 	if !ok {
 		return fmt.Errorf("session %s is not live (unknown or already finished)", sessionID)
 	}
+	if _, running := r.activeCompactions.Load(sessionID); running {
+		return ErrCompactionInProgress
+	}
 	select {
 	case entry.compactCh <- liveCompactionRequest{additionalPrompt: additionalPrompt, events: events}:
 		return nil
@@ -286,7 +289,9 @@ func (r *LocalRuntime) runLiveCompactionRequest(ctx context.Context, sess *sessi
 		}
 		req.events.Emit(event)
 	})
-	r.compactWithReason(ctx, sess, req.additionalPrompt, compactionReasonManual, sink)
+	if err := r.compactWithReason(ctx, sess, req.additionalPrompt, compactionReasonManual, sink); err != nil {
+		sink.Emit(ErrorForSession(sess.ID, err.Error()))
+	}
 	if !completed {
 		req.events.Emit(SessionCompactionCompleted(sess.ID, CompactionOutcomeSkipped, r.sessionAgentName(sess)))
 	}

@@ -15,6 +15,7 @@ import (
 // One job belongs to one stream; only its owner may apply a result.
 type backgroundCompaction struct {
 	cancel   context.CancelFunc
+	release  func()
 	done     chan struct{}
 	snapshot *session.Session
 	agent    *agent.Agent
@@ -51,6 +52,9 @@ func (b *backgroundCompaction) stop(events EventSink) {
 		events.Emit(SessionCompactionCompleted(b.snapshot.ID, CompactionOutcomeSkipped, b.agent.Name()))
 	}
 	b.done = nil
+	if b.release != nil {
+		b.release()
+	}
 	b.result = nil
 }
 
@@ -78,6 +82,9 @@ func (b *backgroundCompaction) poll(ctx context.Context, r *LocalRuntime, sess *
 	}
 	b.cancel()
 	b.done = nil
+	if b.release != nil {
+		defer b.release()
+	}
 	b.flush(events)
 	if b.result == nil {
 		return
@@ -122,10 +129,13 @@ func (b *backgroundCompaction) poll(ctx context.Context, r *LocalRuntime, sess *
 }
 
 func (r *LocalRuntime) startBackgroundCompaction(ctx context.Context, sess *session.Session, a *agent.Agent) *backgroundCompaction {
+	if !r.acquireCompaction(sess.ID) {
+		return nil
+	}
 	snapshot := sess.Clone()
 	snapshot.AgentName = a.Name()
 	jobCtx, cancel := context.WithCancel(ctx)
-	b := &backgroundCompaction{snapshot: snapshot, agent: a, cancel: cancel, done: make(chan struct{})}
+	b := &backgroundCompaction{snapshot: snapshot, agent: a, cancel: cancel, done: make(chan struct{}), release: func() { r.activeCompactions.Delete(sess.ID) }}
 	done := b.done
 	go func() {
 		defer close(done)

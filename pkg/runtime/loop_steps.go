@@ -194,7 +194,10 @@ func (r *LocalRuntime) handleStreamError(
 			"The conversation has exceeded the model's context window. Automatically compacting the conversation history...",
 			a.Name(),
 		))
-		r.compactWithReason(ctx, sess, "", compactionReasonOverflow, events)
+		if err := r.compactWithReason(ctx, sess, "", compactionReasonOverflow, events); err != nil {
+			events.Emit(ErrorForSession(sess.ID, err.Error()))
+			return streamErrorFatal
+		}
 		return streamErrorRetry
 	}
 

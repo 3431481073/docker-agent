@@ -124,7 +124,7 @@ type compactionOutcome struct {
 func runCompaction(t *testing.T, rt *LocalRuntime, sess *session.Session, prompt string) compactionOutcome {
 	t.Helper()
 	events := make(chan Event, 64)
-	rt.compactWithReason(t.Context(), sess, prompt, compactionReasonManual, NewChannelSink(events))
+	require.NoError(t, rt.compactWithReason(t.Context(), sess, prompt, compactionReasonManual, NewChannelSink(events)))
 	close(events)
 
 	var out compactionOutcome
