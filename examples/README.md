@@ -223,6 +223,7 @@ remote MCP endpoints.
 | [`huggingface.yaml`](huggingface.yaml) | Hugging Face Inference Providers open-model router. |
 | [`moonshot.yaml`](moonshot.yaml) | Moonshot AI Kimi provider (`moonshotai`). |
 | [`vercel.yaml`](vercel.yaml) | Vercel AI Gateway multi-provider router. |
+| [`cloudgpu.yaml`](cloudgpu.yaml) | CloudGPU OpenAI-compatible provider (`cloudgpu`). |
 | [`cloudflare-workers-ai.yaml`](cloudflare-workers-ai.yaml) | Cloudflare Workers AI edge-hosted open models. |
 | [`cloudflare-ai-gateway.yaml`](cloudflare-ai-gateway.yaml) | Cloudflare AI Gateway multi-provider router. |
 | [`grok.yaml`](grok.yaml) | xAI Grok model. |
