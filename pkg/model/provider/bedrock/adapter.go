@@ -186,7 +186,7 @@ func (a *streamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			a.pendingFinishReason = chat.FinishReasonToolCalls
 		case types.StopReasonEndTurn, types.StopReasonStopSequence:
 			a.pendingFinishReason = chat.FinishReasonStop
-		case types.StopReasonMaxTokens:
+		case types.StopReasonMaxTokens, types.StopReasonModelContextWindowExceeded:
 			a.pendingFinishReason = chat.FinishReasonLength
 		case types.StopReasonGuardrailIntervened, types.StopReasonContentFiltered:
 			a.pendingFinishReason = chat.FinishReasonRefusal
