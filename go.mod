@@ -19,7 +19,7 @@ require (
 	github.com/alpkeskin/gotoon v0.1.1
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/atotto/clipboard v0.1.4
-	github.com/aws/aws-sdk-go-v2 v1.47.4
+	github.com/aws/aws-sdk-go-v2 v1.47.5
 	github.com/aws/aws-sdk-go-v2/config v1.33.11
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.11
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.7
