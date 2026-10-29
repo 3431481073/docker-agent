@@ -194,3 +194,36 @@ func TestStreamAdapter_SparseIndexes(t *testing.T) {
 		{Type: "text", Text: "second"},
 	}, decodeBlocks(t, finalState(deltas)))
 }
+
+func TestStreamAdapter_FinishReason(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		stopReason types.StopReason
+		want       chat.FinishReason
+	}{
+		{types.StopReasonEndTurn, chat.FinishReasonStop},
+		{types.StopReasonToolUse, chat.FinishReasonToolCalls},
+		{types.StopReasonMaxTokens, chat.FinishReasonLength},
+		{types.StopReasonModelContextWindowExceeded, chat.FinishReasonLength},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.stopReason), func(t *testing.T) {
+			t.Parallel()
+			a := scriptedAdapter(nil, textDelta(0, "partial"), blockStop(0), messageStop(tt.stopReason), metadata())
+			var got []chat.FinishReason
+			for {
+				resp, err := a.Recv()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				require.NoError(t, err)
+				for _, c := range resp.Choices {
+					if c.FinishReason != "" {
+						got = append(got, c.FinishReason)
+					}
+				}
+			}
+			assert.Equal(t, []chat.FinishReason{tt.want}, got)
+		})
+	}
+}
