@@ -392,6 +392,26 @@ mainLoop:
 				}
 			}
 
+			// Text in a terminal chunk belongs to the answer too: some
+			// OpenAI-compatible providers send the last delta together with
+			// finish_reason, so accumulate it before the early return below.
+			if choice.Delta.ReasoningContent != "" {
+				responseStarted = true
+				events.Emit(AgentChoiceReasoning(a.Name(), sess.ID, choice.Delta.ReasoningContent, messageID))
+				fullReasoningContent.WriteString(choice.Delta.ReasoningContent)
+			}
+
+			// Capture thinking signature for Anthropic extended thinking
+			if choice.Delta.ThinkingSignature != "" {
+				responseStarted = true
+				thinkingSignature = choice.Delta.ThinkingSignature
+			}
+
+			if choice.Delta.Content != "" {
+				responseStarted = true
+				appendContent(markerFilter.Push(choice.Delta.Content))
+			}
+
 			if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength || choice.FinishReason == chat.FinishReasonRefusal {
 				finishAssistantText()
 				recordUsage()
@@ -439,23 +459,6 @@ mainLoop:
 			// already handled by the early return above.
 			if choice.FinishReason != "" {
 				providerFinishReason = choice.FinishReason
-			}
-
-			if choice.Delta.ReasoningContent != "" {
-				responseStarted = true
-				events.Emit(AgentChoiceReasoning(a.Name(), sess.ID, choice.Delta.ReasoningContent, messageID))
-				fullReasoningContent.WriteString(choice.Delta.ReasoningContent)
-			}
-
-			// Capture thinking signature for Anthropic extended thinking
-			if choice.Delta.ThinkingSignature != "" {
-				responseStarted = true
-				thinkingSignature = choice.Delta.ThinkingSignature
-			}
-
-			if choice.Delta.Content != "" {
-				responseStarted = true
-				appendContent(markerFilter.Push(choice.Delta.Content))
 			}
 
 		case <-ctx.Done():
