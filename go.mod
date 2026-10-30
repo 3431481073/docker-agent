@@ -40,7 +40,7 @@ require (
 	github.com/docker/portcullis v1.1.4
 	github.com/docker/secrets-engine/client v0.2.2
 	github.com/docker/secrets-engine/x v0.8.5
-	github.com/dop251/goja v0.0.0-20261028213108-85be1416108e
+	github.com/dop251/goja v0.0.0-20261029153331-f81816846776
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/fsnotify/fsnotify v1.10.1
@@ -55,7 +55,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/junegunn/fzf v0.74.5
 	github.com/k3a/html2text v1.5.1
-	github.com/labstack/echo/v4 v4.16.2
+	github.com/labstack/echo/v4 v4.16.3
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/modelcontextprotocol/go-sdk v1.7.0
@@ -73,7 +73,7 @@ require (
 	github.com/temoto/robotstxt v1.1.2
 	github.com/wk8/go-ordered-map/v2 v2.1.9-0.20250401010720-46d686821e33
 	github.com/xeipuuv/gojsonschema v1.2.0
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	github.com/zclconf/go-cty v1.19.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0
