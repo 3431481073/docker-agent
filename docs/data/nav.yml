@@ -191,6 +191,8 @@
       url: /providers/cloudflare-workers-ai/
     - title: ChatGPT
       url: /providers/chatgpt/
+    - title: CloudGPU
+      url: /providers/cloudgpu/
     - title: DaoXE
       url: /providers/daoxe/
     - title: DeepSeek
