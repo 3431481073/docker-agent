@@ -119,7 +119,7 @@ func CreateToolSet(ctx context.Context, toolset latest.Toolset, runConfig *confi
 		// every HTTP request (see remoteMCPClient.expandHeaders).
 		remoteURL := js.NewJsExpander(envProvider).Expand(ctx, toolset.Remote.URL, nil)
 
-		return newRemoteToolset(
+		ts := newRemoteToolset(
 			toolset.Name,
 			remoteURL,
 			toolset.Remote.TransportType,
@@ -129,7 +129,9 @@ func CreateToolSet(ctx context.Context, toolset latest.Toolset, runConfig *confi
 			envProvider,
 			oauthTokenStoreFromContext(ctx),
 			lifecycle.PolicyFromConfig(toolset.Name, toolset.Lifecycle),
-		), nil
+		)
+		ts.SetStandaloneSSE(toolset.Remote.StandaloneSSE)
+		return ts, nil
 
 	default:
 		return nil, errors.New("mcp toolset requires either ref, command, or remote configuration")

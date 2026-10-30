@@ -2854,6 +2854,11 @@
         "oauth": {
           "$ref": "#/definitions/RemoteOAuthConfig",
           "description": "Explicit OAuth credentials for servers that do not support Dynamic Client Registration"
+        },
+        "standalone_sse": {
+          "type": "boolean",
+          "description": "Open the streamable-HTTP standalone SSE GET stream for server-initiated messages (keepalive pings, tools/list_changed). Needed by MCP gateways that close sessions they cannot ping. Ignored for the sse transport.",
+          "default": false
         }
       },
       "required": [
