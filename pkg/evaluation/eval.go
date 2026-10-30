@@ -650,9 +650,7 @@ func buildTranscript(events []map[string]any) string {
 				name, _ = td["name"].(string)
 			}
 			response, _ := event["response"].(string)
-			if len(response) > 500 {
-				response = response[:500] + "...(truncated)"
-			}
+			// Keep the evidence the agent saw; truncation can turn correct answers into grading failures.
 			fmt.Fprintf(&transcript, "[Tool %q returns: %s]\n\n", name, response)
 			if output, ok := outputs[index]; ok {
 				agentName, _ := event["agent_name"].(string)
