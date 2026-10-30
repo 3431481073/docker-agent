@@ -67,7 +67,7 @@ func TestRemoteClientStandaloneSSEOpensGetStream(t *testing.T) {
 				assert.Eventually(t, func() bool { return gets.Load() > 0 }, 5*time.Second, 10*time.Millisecond)
 				return
 			}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond) //nolint:forbidigo // Absence of a GET stream can only be asserted after a real-time grace period.
 			assert.Zero(t, gets.Load())
 		})
 	}
