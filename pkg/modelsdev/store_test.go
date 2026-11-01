@@ -639,7 +639,7 @@ func TestOfflineFromEnv(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(EnvModelsDev, tc.modelsDev)
 			t.Setenv(EnvOffline, tc.offline)
-			assert.Equal(t, tc.want, offlineFromEnv())
+			assert.Equal(t, tc.want, OfflineEnabled())
 		})
 	}
 }
@@ -694,20 +694,34 @@ func TestOfflineUsesStaleCache(t *testing.T) {
 	assert.False(t, *fetched)
 }
 
-// TestOfflineEnvWiresIntoNewStore checks that the environment is honoured by
-// the default constructor used by the CLI.
+// TestOfflineEnvWiresIntoNewStore checks both opt-out switches are honoured by
+// the default constructor, including on a cold guest cache (the sandbox case).
 func TestOfflineEnvWiresIntoNewStore(t *testing.T) {
-	t.Setenv(EnvModelsDev, "off")
-	t.Setenv(EnvOffline, "")
+	for _, tc := range []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{name: "DOCKER_AGENT_MODELS_DEV=off", key: EnvModelsDev, val: "off"},
+		{name: "DOCKER_AGENT_OFFLINE=1", key: EnvOffline, val: "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(EnvModelsDev, "")
+			t.Setenv(EnvOffline, "")
+			t.Setenv(tc.key, tc.val)
 
-	cacheFile := filepath.Join(t.TempDir(), CacheFileName)
-	fetched, fetch := trackingFetcher()
-	store, err := NewStore(WithCache(cacheFile), WithFetcher(fetch))
-	require.NoError(t, err)
+			cacheFile := filepath.Join(t.TempDir(), CacheFileName)
+			fetched, fetch := trackingFetcher()
+			store, err := NewStore(WithCache(cacheFile), WithFetcher(fetch))
+			require.NoError(t, err)
 
-	_, err = store.GetModel(expiredContext(t), NewID("openai", "gpt-4o"))
-	require.NoError(t, err)
-	assert.False(t, *fetched, "DOCKER_AGENT_MODELS_DEV=off must disable the fetch")
+			db, err := store.GetDatabase(expiredContext(t))
+			require.NoError(t, err)
+			require.NotNil(t, db)
+			assert.False(t, *fetched, "%s must disable the fetch with an empty cache", tc.key)
+			assert.NotEmpty(t, db.Providers, "the embedded snapshot must still serve the guest")
+		})
+	}
 }
 
 // TestOfflineEnvDisabledKeepsFetching guards the default behaviour: an unset

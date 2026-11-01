@@ -154,7 +154,7 @@ func NewStore(opts ...Opt) (*Store, error) {
 		fetch = fetchFromAPI
 	}
 
-	offline := offlineFromEnv()
+	offline := OfflineEnabled()
 	if options.offline != nil {
 		offline = *options.offline
 	}
@@ -166,9 +166,11 @@ func NewStore(opts ...Opt) (*Store, error) {
 	}, nil
 }
 
-// offlineFromEnv reports whether DOCKER_AGENT_MODELS_DEV=off or
-// DOCKER_AGENT_OFFLINE=<truthy> asks for network-free catalog access.
-func offlineFromEnv() bool {
+// OfflineEnabled reports whether DOCKER_AGENT_MODELS_DEV=off or
+// DOCKER_AGENT_OFFLINE=<truthy> asks for network-free catalog access. Sandbox
+// dispatch uses it to carry the switch into the guest and to skip the
+// models.dev proxy allowlist.
+func OfflineEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvModelsDev))) {
 	case "off", "false", "0", "no":
 		return true
